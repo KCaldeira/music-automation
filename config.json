@@ -1,0 +1,12 @@
+{
+  "tempo": 120,
+  "beats_per_bar": 4,
+  "divisions_per_beat": 4,
+  "bars_per_cycle": 4,
+  "base_pitch": 60,
+  "volume_variability": 0.15,
+  "pitch_gravity": 12,
+  "num_tracks": 1,
+  "total_cycles": 4,
+  "table_dir": "data/input"
+}
