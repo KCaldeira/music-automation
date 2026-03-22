@@ -6,7 +6,7 @@
   "base_pitch": 60,
   "volume_variability": 0.15,
   "pitch_gravity": 12,
-  "num_tracks": 4,
+  "num_tracks": 1,
   "total_cycles": 24,
   "table_dir": "data/default"
 }

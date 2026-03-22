@@ -9,7 +9,8 @@ from openpyxl import load_workbook
 
 @dataclass
 class Tables:
-    note_probability_table: np.ndarray      # (divisions_per_cycle,)
+    note_probability_table: np.ndarray      # (divisions_per_cycle,) - P(note|prev=note)
+    rest_probability_table: np.ndarray      # (divisions_per_cycle,) - P(rest|prev=rest)
     rest_length_table: np.ndarray            # (divisions_per_cycle, divisions_per_bar-1)
     note_length_table: np.ndarray            # (divisions_per_cycle, divisions_per_bar-1)
     pitch_probability_table: np.ndarray      # (12,)
@@ -64,6 +65,7 @@ def load_tables(table_dir: str, divisions_per_cycle: int, divisions_per_bar: int
     d = Path(table_dir)
 
     note_prob = _load_1d(d / "note_probability_table.xlsx")
+    rest_prob = _load_1d(d / "rest_probability_table.xlsx")
     pitch_prob = _load_1d(d / "pitch_probability_table.xlsx")
     interval_prob = _load_1d(d / "interval_probability_table.xlsx")
     location_vol = _load_1d(d / "location_volume.xlsx")
@@ -72,9 +74,11 @@ def load_tables(table_dir: str, divisions_per_cycle: int, divisions_per_bar: int
     note_len = _load_2d(d / "note_length_table.xlsx")
 
     # Validate shapes
-    max_len = divisions_per_bar - 1
+    max_len = divisions_per_bar
     assert note_prob.shape == (divisions_per_cycle,), \
         f"note_probability_table: expected ({divisions_per_cycle},), got {note_prob.shape}"
+    assert rest_prob.shape == (divisions_per_cycle,), \
+        f"rest_probability_table: expected ({divisions_per_cycle},), got {rest_prob.shape}"
     assert pitch_prob.shape == (12,), \
         f"pitch_probability_table: expected (12,), got {pitch_prob.shape}"
     assert interval_prob.shape == (25,), \
@@ -96,6 +100,7 @@ def load_tables(table_dir: str, divisions_per_cycle: int, divisions_per_bar: int
 
     return Tables(
         note_probability_table=note_prob,
+        rest_probability_table=rest_prob,
         rest_length_table=rest_len,
         note_length_table=note_len,
         pitch_probability_table=pitch_prob,

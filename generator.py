@@ -35,7 +35,7 @@ def next_pitch(
     # Apply gravity
     for i in range(25):
         offset = i - 12 + pitch_current - base_pitch
-        gravity_factor = 1.0 - offset / pitch_gravity
+        gravity_factor = 1.0 - abs(offset / pitch_gravity)
         augmented[i] = max(0.0, augmented[i] * gravity_factor)
 
     total = augmented.sum()
@@ -84,17 +84,23 @@ def generate_track(
     pitch_current = config["base_pitch"]
     current_location = 0
     events = []
+    previous_was_note = False  # Start as if previous was rest
 
     while current_location < total_divisions:
         cycle_loc = current_location % divisions_per_cycle
-        note_prob = tables.note_probability_table[cycle_loc]
+
+        # Markov transition probability
+        if previous_was_note:
+            note_prob = tables.note_probability_table[cycle_loc]
+        else:
+            note_prob = 1.0 - tables.rest_probability_table[cycle_loc]
 
         is_note = rng.random() < note_prob
 
         if is_note:
             # Sample note length
             length_probs = tables.note_length_table[cycle_loc]
-            duration = rng.choice(divisions_per_bar - 1, p=length_probs) + 1
+            duration = rng.choice(divisions_per_bar, p=length_probs) + 1
 
             # Determine pitch and volume
             pitch_current = next_pitch(
@@ -125,8 +131,9 @@ def generate_track(
         else:
             # Sample rest length
             length_probs = tables.rest_length_table[cycle_loc]
-            duration = rng.choice(divisions_per_bar - 1, p=length_probs) + 1
+            duration = rng.choice(divisions_per_bar, p=length_probs) + 1
 
+        previous_was_note = is_note
         current_location += duration
 
     return events
