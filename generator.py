@@ -143,21 +143,24 @@ def apply_rest_sweep(events, cfg, rng):
 
 
 def generate_track(cfg, rng):
-    """Generate one track (sequence of cycles). Returns (Track, terminated_early)."""
+    """Generate one track of total_cycles cycles. Returns (Track, num_cycles_terminated_early).
+
+    Step 5 termination only ends the current cycle early; the loop still runs for the
+    full total_cycles count.
+    """
     npl, nplp, bsl, spc = expand_weights(cfg)
     max_attract = max(cfg["note_probability"]) * max(cfg["beat_start_probability"])
 
     track: Track = []
-    terminated_early = False
+    num_terminated = 0
     for _ in range(cfg["total_cycles"]):
         events, terminated = generate_cycle(cfg, npl, nplp, bsl, spc, max_attract, rng)
         apply_rest_sweep(events, cfg, rng)
         track.append(events)
         if terminated:
-            terminated_early = True
-            break
+            num_terminated += 1
 
-    return track, terminated_early
+    return track, num_terminated
 
 
 def reverse_track(track: Track) -> Track:

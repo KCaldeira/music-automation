@@ -37,7 +37,7 @@ Config is read from a JSON file (e.g. `config/test.json`). Fields:
 | `num_tracks` | Number of parallel MIDI tracks to generate. |
 | `total_cycles` | Number of cycles to generate in the output file. |
 | `output_dir` | Directory to write the resulting `.mid` file into. |
-| `include_reversed_tracks` | Optional, default `false`. If `true`, each forward track is paired with a time-reversed companion track (per-cycle reversal — see "Time-reversed tracks" below). |
+| `include_reversed_tracks` | Optional, default `true`. If `true`, each forward track is paired with a time-reversed companion track (per-cycle reversal — see "Time-reversed tracks" below). Set to `false` to suppress the reversed tracks. |
 
 ## Cycle generation
 
@@ -174,11 +174,11 @@ Draw `u ~ Uniform[0, 1)`. If `u < p_rest`, convert the note to a rest. **Convert
 
 Because `attractiveness` is the product of the two weights, either a weak pitch on a strong beat or a strong pitch on a weak beat produces a substantial `p_rest` — both axes pull the note toward becoming a rest.
 
-### Step 5 — Early termination
+### Step 5 — Early cycle termination
 
-Generation otherwise runs to `total_cycles` cycles. Early termination provides a way to end the piece on a musically natural note — one with high pitch-class weight, on a high-weight beat, near the end of its cycle, and close to `base_pitch`.
+Within each cycle, the note-generation loop normally continues until the chosen `next_note_start` reaches `steps_per_cycle` (the natural cycle boundary; see Step 3). Early termination provides an additional way for a cycle to end on a musically natural note — one with high pitch-class weight, on a high-weight beat, near the end of the cycle, and close to `base_pitch`.
 
-`p_terminate` is evaluated **at each note's start during generation** (not as a post-processing sweep). If it fires, that note is the last note generated: it plays normally with its computed duration, the remainder of its cycle becomes silence, and no further cycles are produced.
+`p_terminate` is evaluated **at each note's start during generation** (not as a post-processing sweep). If it fires, that note is the last note generated **for the current cycle**: it plays normally with its computed duration, the remainder of *that cycle* becomes silence, and the loop then advances to the **next** cycle (which begins normally with a fresh `current_step = 0` and `prev_pitch = base_pitch`). Generation always continues for the full `total_cycles` cycles; Step 5 only shortens individual cycles, it never ends the piece.
 
 For a note with pitch `p` starting at step `current_step` within its cycle:
 

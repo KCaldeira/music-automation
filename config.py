@@ -31,7 +31,7 @@ def load_config(path: str) -> dict:
     if missing:
         raise ValueError(f"Config {path} is missing required keys: {missing}")
 
-    cfg.setdefault("include_reversed_tracks", False)
+    cfg.setdefault("include_reversed_tracks", True)
 
     _validate(cfg, path)
     return cfg

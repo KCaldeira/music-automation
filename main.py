@@ -74,10 +74,10 @@ def print_summary(forward, reversed_tracks, output_path, seed, elapsed):
     print()
 
     total_notes = total_rests = 0
-    for i, (track, terminated) in enumerate(forward, start=1):
+    for i, (track, num_terminated) in enumerate(forward, start=1):
         notes, rests = _count(track)
         cycles = len(track)
-        flag = "  [terminated early]" if terminated else ""
+        flag = f"  [{num_terminated} cycle(s) cut short]" if num_terminated else ""
         print(f"  Forward track {i}: {cycles} cycle(s), {notes} note(s), {rests} rest(s){flag}")
         total_notes += notes
         total_rests += rests
