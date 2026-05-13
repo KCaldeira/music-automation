@@ -1,5 +1,5 @@
 {
-  "tempo": 84,
+  "tempo": 108,
   "beats_per_bar": 4,
   "divisions_per_beat": 4,
   "bars_per_cycle": 4,
@@ -7,6 +7,6 @@
   "volume_variability": 0.05,
   "pitch_gravity": 24,
   "num_tracks": 12,
-  "total_cycles": 200,
-  "table_dir": "data/test01"
+  "total_cycles": 300,
+  "table_dir": "data/music02"
 }
