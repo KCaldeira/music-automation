@@ -1,5 +1,2 @@
 mido
-python-rtmidi
 numpy
-matplotlib
-openpyxl
