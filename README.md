@@ -38,6 +38,8 @@ Config is read from a JSON file (e.g. `config/test.json`). Fields:
 | `total_cycles` | Number of cycles to generate in the output file. |
 | `output_dir` | Directory to write the resulting `.mid` file into. |
 | `include_reversed_tracks` | Optional, default `true`. If `true`, each forward track is paired with a time-reversed companion track (per-cycle reversal — see "Time-reversed tracks" below). Set to `false` to suppress the reversed tracks. |
+| `random_number_change_probability` | Optional, default `1.0`. Controls how much the per-cycle random-number table changes from one cycle to the next within a track. At `1.0`, every cycle uses a completely fresh table (independent cycles). At `0.0`, the entire track reuses one fixed table (every cycle is identical). Intermediate values cause that fraction of cells in the table to be re-drawn between cycles, giving gradual cycle-to-cycle drift. Each track always starts with a fully fresh table. See "Cycle-to-cycle randomness drift" below. |
+| `start_cycle_on_base_pitch` | Optional, default `false`. If `true`, the first note of every cycle is set to `base_pitch` exactly, bypassing the pitch-sampling formula for that note. Useful for periodic, "returns-home" structures where each cycle should begin on the tonic. |
 
 ## Cycle generation
 
@@ -69,6 +71,8 @@ For each step in the cycle for which a note is generated, the pitch of the new n
 3. **Pitch gravity** — a Gaussian penalty on the absolute distance (in semitones) from `base_pitch`. Width is set by `pitch_gravity`. Pitches far from the center are exponentially less likely.
 
 Let `prev_pitch` be the pitch of the previous note. For the first note of **every cycle**, `prev_pitch = base_pitch` (treated as if an imaginary note at `base_pitch` had just been played — each cycle starts melodically "fresh," with no carry-over from the previous cycle). For every subsequent note within a cycle, `prev_pitch` is the pitch actually chosen for the most recent note.
+
+If the optional flag `start_cycle_on_base_pitch` is `true`, the formula below is bypassed for the first note of each cycle and the pitch is set to `base_pitch` directly (the corresponding random draw for that note is unused).
 
 The raw weight for each candidate pitch is then computed elementwise across `note_pitch_list`:
 
@@ -202,6 +206,26 @@ Each factor is in `[0, 1]`, so `p_terminate ∈ [0, 1]` is always a valid probab
 | `exp( -(p - base_pitch)**2 / pitch_gravity**2 )` | the note's pitch equals `base_pitch` | the note is far from `base_pitch` (width `pitch_gravity`) |
 
 Note that `pitch_gravity` is reused from Step 2 — it sets the same width of "tolerance around the tonic." Termination is therefore most likely on a strong beat, near the end of a cycle, on a pitch close to the tonic — a musically sensible ending.
+
+### Cycle-to-cycle randomness drift
+
+The cycle generator consumes one block of uniform random numbers per cycle: a 2-D array with one row per random source (pitch selection, next-note start, termination decision, rest-sweep decision) and one column per step within the cycle.
+
+Within a single track, this random-number table evolves across cycles according to `random_number_change_probability` (`p`):
+
+- **Cycle 0** of every track: the table is drawn entirely fresh from the RNG.
+- **Cycle k → cycle k + 1**: each cell of the table is, independently, **re-drawn with probability `p`** and **kept unchanged with probability `1 - p`**.
+
+Effect across the spectrum of `p`:
+
+| `p` | Behavior |
+|---|---|
+| `1.0` | Every cycle uses a completely independent table — full random variation, identical to a no-memory setting. |
+| `0.5` | About half the cells turn over each cycle; substantial change but recognizable continuity. |
+| `0.05` | About 5% of cells change each cycle; the table drifts slowly so consecutive cycles sound like variations on each other. |
+| `0.0` | The table never changes after cycle 0. Combined with the per-cycle reset of `current_step = 0` and `prev_pitch = base_pitch`, every cycle in the track is bit-for-bit identical. |
+
+Each new track gets its own fresh starting table, so tracks remain melodically independent regardless of `p`.
 
 Subsequent steps (velocity / volume, multi-track behavior, etc.) will be defined in following sections.
 

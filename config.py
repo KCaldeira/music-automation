@@ -32,6 +32,8 @@ def load_config(path: str) -> dict:
         raise ValueError(f"Config {path} is missing required keys: {missing}")
 
     cfg.setdefault("include_reversed_tracks", True)
+    cfg.setdefault("random_number_change_probability", 1.0)
+    cfg.setdefault("start_cycle_on_base_pitch", False)
 
     _validate(cfg, path)
     return cfg
@@ -90,6 +92,13 @@ def _validate(cfg: dict, path: str) -> None:
 
     if not 0 <= cfg["rest_probability"] <= 1:
         fail(f"rest_probability must be in [0, 1] (got {cfg['rest_probability']!r})")
+
+    p = cfg["random_number_change_probability"]
+    if not isinstance(p, (int, float)) or not 0 <= p <= 1:
+        fail(f"random_number_change_probability must be in [0, 1] (got {p!r})")
+
+    if not isinstance(cfg["start_cycle_on_base_pitch"], bool):
+        fail(f"start_cycle_on_base_pitch must be a bool (got {cfg['start_cycle_on_base_pitch']!r})")
 
     if not isinstance(cfg["output_dir"], str) or not cfg["output_dir"]:
         fail("output_dir must be a non-empty string")

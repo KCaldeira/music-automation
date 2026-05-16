@@ -1,11 +1,21 @@
 """Pure cycle-generation algorithm — Steps 1-5 from README plus per-cycle reversal.
 
-No MIDI / file I/O lives here.
+No MIDI / file I/O lives here. All randomness for one cycle is pre-drawn into a
+single (NUM_RND_ROWS, steps_per_cycle) array of uniforms in [0, 1); leaf helpers
+take a scalar `u`, and the rest sweep takes a 1-D slice.
 """
 
 from dataclasses import dataclass
 
 import numpy as np
+
+
+# Row indices into the (NUM_RND_ROWS, steps_per_cycle) cycle_randoms array.
+RND_PITCH      = 0
+RND_NEXT_START = 1
+RND_TERMINATE  = 2
+RND_REST       = 3
+NUM_RND_ROWS   = 4
 
 
 @dataclass
@@ -38,23 +48,24 @@ def expand_weights(cfg: dict):
 
 
 def sample_pitch(prev_pitch, note_pitch_list, note_probability_list,
-                 base_pitch, interval_gravity, pitch_gravity, rng):
-    """README Step 2."""
+                 base_pitch, interval_gravity, pitch_gravity, u):
+    """README Step 2. `u` is a single uniform[0, 1) random."""
     raw = (
         note_probability_list
         * np.exp(-(note_pitch_list - prev_pitch) ** 2 / interval_gravity ** 2)
         * np.exp(-(note_pitch_list - base_pitch) ** 2 / pitch_gravity ** 2)
     )
     cum = np.cumsum(raw / raw.sum())
-    idx = int(np.searchsorted(cum, rng.random()))
+    idx = int(np.searchsorted(cum, u))
     return int(note_pitch_list[idx])
 
 
 def sample_next_start(current_step, beat_start_list, steps_per_cycle,
-                      step_length_scale, rng):
-    """README Step 3. Returns next_note_start in [current_step+1, steps_per_cycle].
+                      step_length_scale, u):
+    """README Step 3. `u` is a single uniform[0, 1) random.
 
-    The value steps_per_cycle means "end of cycle" (current note fills the rest).
+    Returns next_note_start in [current_step+1, steps_per_cycle]. The value
+    steps_per_cycle means "end of cycle" (current note fills the rest).
     """
     ext = np.empty(steps_per_cycle + 1, dtype=float)
     ext[:steps_per_cycle] = beat_start_list
@@ -67,13 +78,13 @@ def sample_next_start(current_step, beat_start_list, steps_per_cycle,
     step_number = np.arange(steps_per_cycle + 1)
     raw = ext * np.exp(-(step_number - current_step) ** 2 / step_length_scale ** 2)
     cum = np.cumsum(raw / raw.sum())
-    return int(np.searchsorted(cum, rng.random()))
+    return int(np.searchsorted(cum, u))
 
 
 def should_terminate(pitch, current_step, beat_start_list, max_attractiveness,
                      note_probability, base_pitch, steps_per_cycle,
-                     pitch_gravity, ending_gravity, rng):
-    """README Step 5."""
+                     pitch_gravity, ending_gravity, u):
+    """README Step 5. `u` is a single uniform[0, 1) random."""
     pitch_weight = note_probability[(pitch - base_pitch) % 12]
     step_weight = float(beat_start_list[current_step])
     p_terminate = (
@@ -81,25 +92,54 @@ def should_terminate(pitch, current_step, beat_start_list, max_attractiveness,
         * np.exp(-((steps_per_cycle - current_step) ** 2) / ending_gravity ** 2)
         * np.exp(-((pitch - base_pitch) ** 2) / pitch_gravity ** 2)
     )
-    return rng.random() < p_terminate
+    return u < p_terminate
+
+
+def apply_rest_sweep(events, cfg, u_rest):
+    """README Step 4. In-place. `u_rest` is a 1-D array of uniforms; its first
+    `len(events)` entries are consumed (one per event)."""
+    rp = cfg["rest_probability"]
+    if rp <= 0:
+        return
+    max_attract = max(cfg["note_probability"]) * max(cfg["beat_start_probability"])
+    steps_per_bar = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
+    base = cfg["base_pitch"]
+    for i, ev in enumerate(events):
+        if ev.pitch is None:
+            continue
+        pw = cfg["note_probability"][(ev.pitch - base) % 12]
+        sw = cfg["beat_start_probability"][ev.start_step % steps_per_bar]
+        p_rest = rp * (1 - (pw * sw) / max_attract)
+        if u_rest[i] < p_rest:
+            ev.pitch = None
 
 
 def generate_cycle(cfg, note_pitch_list, note_probability_list, beat_start_list,
-                   steps_per_cycle, max_attractiveness, rng):
-    """Generate one cycle's event list. Returns (events, terminated)."""
+                   steps_per_cycle, max_attractiveness, cycle_randoms):
+    """Generate one cycle's event list and apply the rest sweep. Returns (events, terminated).
+
+    `cycle_randoms` is an ndarray of shape (NUM_RND_ROWS, steps_per_cycle) with
+    values in [0, 1). Row indices: RND_PITCH, RND_NEXT_START, RND_TERMINATE, RND_REST.
+    """
     events: list[StepEvent] = []
     current_step = 0
     prev_pitch = cfg["base_pitch"]
     terminated = False
+    note_idx = 0
 
     while True:
-        pitch = sample_pitch(
-            prev_pitch, note_pitch_list, note_probability_list,
-            cfg["base_pitch"], cfg["interval_gravity"], cfg["pitch_gravity"], rng,
-        )
+        if note_idx == 0 and cfg["start_cycle_on_base_pitch"]:
+            pitch = cfg["base_pitch"]
+        else:
+            pitch = sample_pitch(
+                prev_pitch, note_pitch_list, note_probability_list,
+                cfg["base_pitch"], cfg["interval_gravity"], cfg["pitch_gravity"],
+                cycle_randoms[RND_PITCH, note_idx],
+            )
         next_start = sample_next_start(
             current_step, beat_start_list, steps_per_cycle,
-            cfg["step_length_scale"], rng,
+            cfg["step_length_scale"],
+            cycle_randoms[RND_NEXT_START, note_idx],
         )
         events.append(StepEvent(
             pitch=pitch,
@@ -110,7 +150,8 @@ def generate_cycle(cfg, note_pitch_list, note_probability_list, beat_start_list,
         if should_terminate(
             pitch, current_step, beat_start_list, max_attractiveness,
             cfg["note_probability"], cfg["base_pitch"], steps_per_cycle,
-            cfg["pitch_gravity"], cfg["ending_gravity"], rng,
+            cfg["pitch_gravity"], cfg["ending_gravity"],
+            cycle_randoms[RND_TERMINATE, note_idx],
         ):
             terminated = True
             break
@@ -120,26 +161,10 @@ def generate_cycle(cfg, note_pitch_list, note_probability_list, beat_start_list,
 
         current_step = next_start
         prev_pitch = pitch
+        note_idx += 1
 
+    apply_rest_sweep(events, cfg, cycle_randoms[RND_REST])
     return events, terminated
-
-
-def apply_rest_sweep(events, cfg, rng):
-    """README Step 4. In-place: each non-rest event may be flipped to a rest."""
-    rp = cfg["rest_probability"]
-    if rp <= 0:
-        return
-    max_attract = max(cfg["note_probability"]) * max(cfg["beat_start_probability"])
-    steps_per_bar = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
-    base = cfg["base_pitch"]
-    for ev in events:
-        if ev.pitch is None:
-            continue
-        pw = cfg["note_probability"][(ev.pitch - base) % 12]
-        sw = cfg["beat_start_probability"][ev.start_step % steps_per_bar]
-        p_rest = rp * (1 - (pw * sw) / max_attract)
-        if rng.random() < p_rest:
-            ev.pitch = None
 
 
 def generate_track(cfg, rng):
@@ -147,18 +172,39 @@ def generate_track(cfg, rng):
 
     Step 5 termination only ends the current cycle early; the loop still runs for the
     full total_cycles count.
+
+    Random numbers for each cycle live in a (NUM_RND_ROWS, steps_per_cycle) array.
+    The first cycle's array is drawn fresh. Between cycles, each cell is independently
+    re-drawn with probability `random_number_change_probability`; the others are
+    inherited from the previous cycle. At p=1.0 every cycle is fully fresh (current
+    behavior); at p=0.0 every cycle is identical; intermediate values give gradual
+    drift across the track.
     """
     npl, nplp, bsl, spc = expand_weights(cfg)
     max_attract = max(cfg["note_probability"]) * max(cfg["beat_start_probability"])
+    p_change = cfg["random_number_change_probability"]
+    shape = (NUM_RND_ROWS, spc)
+
+    cycle_randoms = rng.random(size=shape)            # fresh start for this track
 
     track: Track = []
     num_terminated = 0
-    for _ in range(cfg["total_cycles"]):
-        events, terminated = generate_cycle(cfg, npl, nplp, bsl, spc, max_attract, rng)
-        apply_rest_sweep(events, cfg, rng)
+    for cycle_idx in range(cfg["total_cycles"]):
+        events, terminated = generate_cycle(
+            cfg, npl, nplp, bsl, spc, max_attract, cycle_randoms,
+        )
         track.append(events)
         if terminated:
             num_terminated += 1
+
+        if cycle_idx < cfg["total_cycles"] - 1:
+            if p_change >= 1.0:
+                cycle_randoms = rng.random(size=shape)
+            elif p_change > 0.0:
+                mask = rng.random(size=shape) < p_change
+                fresh = rng.random(size=shape)
+                cycle_randoms = np.where(mask, fresh, cycle_randoms)
+            # p_change == 0.0: keep cycle_randoms unchanged
 
     return track, num_terminated
 
