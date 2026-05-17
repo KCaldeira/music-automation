@@ -31,12 +31,12 @@ def main():
 
     forward = [generator.generate_track(cfg, rng) for _ in range(cfg["num_tracks"])]
 
-    reversed_tracks = []
-    if cfg["include_reversed_tracks"]:
-        reversed_tracks = [generator.reverse_track(t) for (t, _) in forward]
-
     steps_per_cycle = cfg["divisions_per_beat"] * cfg["beats_per_bar"] * cfg["bars_per_cycle"]
     ticks_per_step = midi_writer.PPQN // cfg["divisions_per_beat"]
+
+    reversed_tracks = []
+    if cfg["include_reversed_tracks"]:
+        reversed_tracks = [generator.reverse_track(t, steps_per_cycle) for (t, _) in forward]
 
     midi_tracks = [
         midi_writer.track_to_note_events(t, steps_per_cycle, ticks_per_step)

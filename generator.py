@@ -209,18 +209,23 @@ def generate_track(cfg, rng):
     return track, num_terminated
 
 
-def reverse_track(track: Track) -> Track:
-    """Per-cycle time reversal. Pure function — events are recreated, not mutated."""
+def reverse_track(track: Track, steps_per_cycle: int) -> Track:
+    """Per-cycle time reversal as a true mirror image around the cycle midpoint.
+
+    An event at (start_step=s, duration=d) becomes (start_step=steps_per_cycle-s-d,
+    duration=d), so trailing empty space (e.g. from Step-5 early termination) in the
+    forward cycle becomes leading empty space in the reversed cycle. Rest events
+    (pitch=None) mirror by the same rule.
+    """
     reversed_track: Track = []
     for cycle in track:
-        new_cycle: list[StepEvent] = []
-        step = 0
-        for ev in reversed(cycle):
-            new_cycle.append(StepEvent(
+        new_cycle = [
+            StepEvent(
                 pitch=ev.pitch,
-                start_step=step,
+                start_step=steps_per_cycle - ev.start_step - ev.duration_steps,
                 duration_steps=ev.duration_steps,
-            ))
-            step += ev.duration_steps
+            )
+            for ev in reversed(cycle)
+        ]
         reversed_track.append(new_cycle)
     return reversed_track
