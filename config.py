@@ -102,3 +102,6 @@ def _validate(cfg: dict, path: str) -> None:
 
     if not isinstance(cfg["output_dir"], str) or not cfg["output_dir"]:
         fail("output_dir must be a non-empty string")
+
+    if "description" in cfg and not isinstance(cfg["description"], str):
+        fail(f"description must be a string (got {cfg['description']!r})")

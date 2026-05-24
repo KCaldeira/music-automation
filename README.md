@@ -40,6 +40,7 @@ Config is read from a JSON file (e.g. `config/test.json`). Fields:
 | `include_reversed_tracks` | Optional, default `true`. If `true`, each forward track is paired with a time-reversed companion track (per-cycle reversal — see "Time-reversed tracks" below). Set to `false` to suppress the reversed tracks. |
 | `random_number_change_probability` | Optional, default `1.0`. Controls how much the per-cycle random-number table changes from one cycle to the next within a track. At `1.0`, every cycle uses a completely fresh table (independent cycles). At `0.0`, the entire track reuses one fixed table (every cycle is identical). Intermediate values cause that fraction of cells in the table to be re-drawn between cycles, giving gradual cycle-to-cycle drift. Each track always starts with a fully fresh table. See "Cycle-to-cycle randomness drift" below. |
 | `start_cycle_on_base_pitch` | Optional, default `false`. If `true`, the first note of every cycle is set to `base_pitch` exactly, bypassing the pitch-sampling formula for that note. Useful for periodic, "returns-home" structures where each cycle should begin on the tonic. |
+| `description` | Optional free-text note describing the config. Ignored by the generator — purely for human reference. |
 
 ## Cycle generation
 
