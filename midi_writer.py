@@ -37,16 +37,23 @@ def track_to_note_events(track, steps_per_cycle: int, ticks_per_step: int):
     return notes
 
 
-def write_midi(tracks, tempo_bpm, output_path: str):
-    """Write a Type 1 MIDI file: track 0 = tempo, tracks 1..N = notes (channel 0)."""
+def write_midi(tracks, tempo_bpm, output_path: str, track_names=None):
+    """Write a Type 1 MIDI file: track 0 = tempo, tracks 1..N = notes (channel 0).
+
+    If track_names is given, it must be parallel to tracks; each name is emitted
+    as a track_name meta message at the start of the corresponding track.
+    """
     mid = mido.MidiFile(type=1, ticks_per_beat=PPQN)
 
     tempo_track = mido.MidiTrack()
     tempo_track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(tempo_bpm)))
     mid.tracks.append(tempo_track)
 
-    for track_events in tracks:
+    for i, track_events in enumerate(tracks):
         track = mido.MidiTrack()
+
+        if track_names is not None:
+            track.append(mido.MetaMessage("track_name", name=track_names[i], time=0))
 
         messages = []
         for ev in track_events:

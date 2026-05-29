@@ -209,23 +209,47 @@ def generate_track(cfg, rng):
     return track, num_terminated
 
 
-def reverse_track(track: Track, steps_per_cycle: int) -> Track:
+def reverse_track(track: Track, steps_per_cycle: int,
+                  last_start_offset: int = 0) -> Track:
     """Per-cycle time reversal as a true mirror image around the cycle midpoint.
 
     An event at (start_step=s, duration=d) becomes (start_step=steps_per_cycle-s-d,
     duration=d), so trailing empty space (e.g. from Step-5 early termination) in the
     forward cycle becomes leading empty space in the reversed cycle. Rest events
     (pitch=None) mirror by the same rule.
+
+    When ``last_start_offset`` is negative, the entire reversed cycle is shifted
+    so the LAST event starts at step ``steps_per_cycle + last_start_offset``,
+    then every event is clipped to the in-cycle range ``[0, steps_per_cycle)``.
+    Events that fall entirely outside that range are dropped. With the default
+    value of 0 the shift step is skipped and the pure mirror is returned.
     """
+    S = steps_per_cycle
     reversed_track: Track = []
     for cycle in track:
         new_cycle = [
             StepEvent(
                 pitch=ev.pitch,
-                start_step=steps_per_cycle - ev.start_step - ev.duration_steps,
+                start_step=S - ev.start_step - ev.duration_steps,
                 duration_steps=ev.duration_steps,
             )
             for ev in reversed(cycle)
         ]
+        if last_start_offset < 0 and new_cycle:
+            delta = (S + last_start_offset) - new_cycle[-1].start_step
+            clipped = []
+            for ev in new_cycle:
+                ns = ev.start_step + delta
+                ne = ns + ev.duration_steps
+                ns_c = max(0, ns)
+                ne_c = min(S, ne)
+                nd_c = ne_c - ns_c
+                if nd_c > 0:
+                    clipped.append(StepEvent(
+                        pitch=ev.pitch,
+                        start_step=ns_c,
+                        duration_steps=nd_c,
+                    ))
+            new_cycle = clipped
         reversed_track.append(new_cycle)
     return reversed_track

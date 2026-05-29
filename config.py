@@ -31,9 +31,11 @@ def load_config(path: str) -> dict:
     if missing:
         raise ValueError(f"Config {path} is missing required keys: {missing}")
 
-    cfg.setdefault("include_reversed_tracks", True)
     cfg.setdefault("random_number_change_probability", 1.0)
     cfg.setdefault("start_cycle_on_base_pitch", False)
+    cfg.setdefault("seed", None)
+    cfg.setdefault("track_direction", "both")
+    cfg.setdefault("reversal_last_note_start_step", 0)
 
     _validate(cfg, path)
     return cfg
@@ -105,3 +107,15 @@ def _validate(cfg: dict, path: str) -> None:
 
     if "description" in cfg and not isinstance(cfg["description"], str):
         fail(f"description must be a string (got {cfg['description']!r})")
+
+    if cfg["seed"] is not None and (not isinstance(cfg["seed"], int)
+                                    or isinstance(cfg["seed"], bool) or cfg["seed"] < 0):
+        fail(f"seed must be null or a non-negative int (got {cfg['seed']!r})")
+
+    if cfg["track_direction"] not in ("forward", "reversed", "both"):
+        fail(f"track_direction must be 'forward', 'reversed', or 'both' "
+             f"(got {cfg['track_direction']!r})")
+
+    n = cfg["reversal_last_note_start_step"]
+    if isinstance(n, bool) or not isinstance(n, int) or n > 0:
+        fail(f"reversal_last_note_start_step must be an int <= 0 (got {n!r})")
