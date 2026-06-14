@@ -1,8 +1,27 @@
 # music-automation
 
-Randomly generates MIDI files for testing, driven by a JSON config (e.g. `config/stochastic/test.json`).
+Generates MIDI files driven by a JSON config. There are two generation
+**workflows**, each with its own entry script and config directory but sharing
+the grid/timing concepts, the pitch-selection math, and the MIDI writer:
 
-## Concepts
+| Workflow | Entry script | Configs | Idea |
+|---|---|---|---|
+| **Stochastic** | `scripts/generate_stochastic.py` | `config/stochastic/` | Each cycle is generated independently by gravity-weighted random sampling of pitches and note lengths, with optional per-cycle time reversal. |
+| **Elaboration** | `scripts/generate_elaboration.py` | `config/elaboration/` | Start from a single sustained note and progressively elaborate it; each cycle is the previous cycle plus a few edits. By default the cycle order is reversed, so the piece starts complex and converges to one held note. |
+
+Run either as:
+
+```
+python scripts/generate_stochastic.py  config/stochastic/<name>.json  [--seed N]
+python scripts/generate_elaboration.py config/elaboration/<name>.json [--seed N]
+```
+
+Shared modules live in `src/` (`config.py`, `generator.py`, `elaborator.py`,
+`midi_writer.py`). The **Shared concepts** below apply to both workflows; the
+**Stochastic workflow** and **Elaboration workflow** sections then document each
+in full.
+
+## Shared concepts
 
 ### Cycle and steps
 
@@ -16,9 +35,9 @@ A single function generates one cycle's worth of notes for a track. The top-leve
 
 ### Steps per bar
 
-A **bar** contains `divisions_per_beat * beats_per_bar` steps. This is the unit over which `division_start_probability` is defined (see below).
+A **bar** contains `divisions_per_beat * beats_per_bar` steps (one **step** = one **division**; the two terms are used interchangeably). The bar is the natural unit for the per-division weight/probability vectors: any of them may be supplied at bar length and is then tiled across the cycle (see each workflow's configuration below).
 
-## Configuration
+## Stochastic workflow: configuration
 
 Config is read from a JSON file (e.g. `config/stochastic/test.json`). Fields:
 
@@ -47,7 +66,7 @@ Config is read from a JSON file (e.g. `config/stochastic/test.json`). Fields:
 | `seed` | Optional RNG seed (non-negative int) for reproducible output. Default `null` = a fresh random seed each run. The `--seed` command-line argument overrides this value. |
 | `reversal_last_note_start_step` | Optional integer ≤ 0, default `0`. Shifts each reversed cycle so the last reversed event starts `-N` steps before the cycle end, then clips to the cycle. `0` is off (pure mirror). See "Time-reversed tracks" below. |
 
-## Cycle generation
+## Stochastic workflow: cycle generation
 
 Generation of one cycle proceeds in steps. The first step is to expand the user-supplied weight arrays so that each grid position has its own weight.
 
@@ -235,7 +254,7 @@ Each new track gets its own fresh starting table, so tracks remain melodically i
 
 Subsequent steps (velocity / volume, multi-track behavior, etc.) will be defined in following sections.
 
-## Output
+## Stochastic workflow: output
 
 The generator produces a **single MIDI file** per run, written to `output_dir`. Multiple tracks all live inside that one file (not split into separate files). This matches the convention used by the code preserved in `./archive`.
 
@@ -293,11 +312,150 @@ With `"forward"` only tracks 1 … N are written; with `"reversed"` only the N r
 
 All notes remain on MIDI channel 0.
 
+## Elaboration workflow: configuration
+
+Config is read from a JSON file (e.g. `config/elaboration/test.json`). It shares
+the grid/pitch fields with the stochastic workflow but drops the stochastic-only
+keys (`step_length_scale`, `ending_gravity`, `rest_probability`,
+`track_direction`, `reversal_last_note_start_step`,
+`random_number_change_probability`, `start_cycle_on_base_pitch`) and adds the
+`division_*` elaboration parameters.
+
+| Field | Meaning |
+|---|---|
+| `tempo`, `beats_per_bar`, `divisions_per_beat`, `bars_per_cycle` | Same as the stochastic workflow (grid + timing). |
+| `base_pitch` | Reference / center pitch. Cycle 0 is one note held at `base_pitch`. |
+| `note_probability` | Length-12 pitch-class weights (same as stochastic); used whenever a pitch is sampled. |
+| `max_pitch_range` | Half-width (semitones) of the candidate pitch band around `base_pitch`. |
+| `interval_gravity`, `pitch_gravity` | Same Gaussian widths as the stochastic workflow, used by the pitch sampler. |
+| `division_change_probability` | **Weight** vector (used as `value/sum`): the probability of choosing each division as the place to make the next edit. |
+| `division_start_probability` | **Direct probability** in `[0, 1]`: how much a division wants to be a note **onset** rather than be sustained through. The sustain-through (extension) probability is `1 - division_start_probability`. High value ⇒ more onsets on that division. |
+| `division_rest_probability` | **Direct probability** in `[0, 1]`: chance that a selected note-start (case a) or note-split second half (case c) becomes a rest. |
+| `changes_per_cycle` | Optional, default `1`. Number of edits applied per cycle transition (k → k+1). |
+| `reverse_cycle_order` | Optional, default `true`. Reverse the order of cycles at output (complex → single held note). |
+| `num_tracks`, `total_cycles`, `output_dir` | Same as the stochastic workflow. |
+| `seed` | Optional RNG seed (overridden by `--seed`). |
+| `description` | Optional free-text note; ignored by the generator. |
+
+**Length convention for the per-division vectors.** Each of
+`division_change_probability`, `division_start_probability`, and
+`division_rest_probability` is conceptually length `divisions_per_cycle`. It may
+be supplied as:
+
+- a **scalar** — broadcast to every division;
+- a **`divisions_per_bar`-length** list — tiled `bars_per_cycle` times;
+- a **`divisions_per_cycle`-length** list — used as-is.
+
+> **Note on the shared name `division_start_probability`.** This key exists in
+> *both* workflows but with different numeric conventions. In the **stochastic**
+> config it is a relative **weight** (per bar) for where notes may start; in the
+> **elaboration** config it is a direct **probability** in `[0, 1]` (equal to
+> `1 -` the extension probability). Both express "where notes want to start." The
+> two workflows use separate config directories and loaders, so there is no
+> runtime conflict.
+
+## Elaboration workflow: algorithm
+
+### Representation
+
+A cycle is a **per-division grid** of length `divisions_per_cycle`. Each division
+is in one of three states:
+
+- **note start** — a note begins here (carries a pitch);
+- **sustain** — a continuation of the note that started at an earlier division;
+- **rest** — silence (carries no pitch).
+
+A note is a maximal *note start* followed by zero or more *sustain* divisions.
+The grid is converted to notes (and dropped rests) only at the end, then handed
+to the same MIDI writer as the stochastic workflow.
+
+### Initial state and cumulative cycles
+
+Each track is built independently. **Cycle 0** is a single note at `base_pitch`
+sustained across the whole cycle. Each later forward cycle is the previous cycle
+plus `changes_per_cycle` **edits** — the elaboration is purely **cumulative**
+(cycle k+1 is literally cycle k with more edits applied). The loop runs for
+`total_cycles` cycles.
+
+By default (`reverse_cycle_order: true`) the order of cycles is reversed before
+output, so the piece **starts at the most elaborated cycle and converges to the
+single held note** at the end.
+
+### One edit
+
+1. **Pick a division** `d`, sampled with probability proportional to
+   `division_change_probability`.
+2. **Classify** `d` as a note start, a rest, or mid-note (sustain), and apply the
+   matching rule below.
+
+**Case (a) — `d` is a note start.**
+With probability `division_rest_probability[d]` the **whole note** (the start and
+its sustains) becomes a rest. Otherwise the note's pitch is **resampled** (see
+*Pitch selection*); because we have decided to change it, the new pitch is
+required to **differ** from the current one (the current pitch is excluded from
+the candidate distribution; if that leaves no candidate, the note is left
+unchanged).
+
+**Case (b) — `d` is a rest.**
+If a note is sounding on the preceding division `d-1`, draw against the
+**extension** probability `1 - division_start_probability[d]`:
+
+- **success** ⇒ extend the preceding note forward to cover `d`, then run the
+  *forward-extension subroutine* from `d+1`;
+- **failure** (or no note sounds on `d-1`, e.g. `d == 0`) ⇒ **start a new note**
+  at `d`. Its pitch is sampled normally and **may equal** the previous note's
+  pitch (re-articulating the same pitch after a rest is allowed). Then run the
+  *forward-extension subroutine* from `d+1` to set its length.
+
+**Case (c) — `d` is mid-note (a sustain).**
+**Cut** the note in two at `d`. The first segment keeps the original pitch. The
+second segment (from `d` to the note's end) becomes, with probability
+`division_rest_probability[d]`, a **rest**; otherwise a **new note start at the
+same pitch** (a re-articulation). No pitch is resampled and no duration changes.
+
+### Forward-extension subroutine
+
+Sets how far a freshly created or just-extended note reaches. Walking forward
+from the note's current end:
+
+- stop at the next **note start** (a note may not overlap the next one) or at the
+  cycle end;
+- over a **rest** division `j`, absorb it (sustain through) with probability
+  `1 - division_start_probability[j]`, then continue; otherwise stop.
+
+So a high `division_start_probability[j]` makes the note unlikely to sustain
+through `j`, leaving `j` free to begin a note — which is how the parameter
+concentrates onsets on chosen divisions.
+
+### Pitch selection
+
+Whenever a pitch is sampled (case a resample, case b new note) it uses the **same
+pitch sampler as the stochastic workflow** (`note_probability` shaped by
+`interval_gravity` toward the previous pitch and `pitch_gravity` toward
+`base_pitch`). The **previous pitch** is the pitch of the nearest note sounding
+*before* division `d`; if none exists (e.g. `d == 0`, or only rests precede `d`),
+`base_pitch` is used.
+
+## Elaboration workflow: output
+
+The MIDI output is the **same format** as the stochastic workflow: a single
+Type 1 file in `output_dir` named `<config_basename>_<YYYYMMDD>_<HHMMSS>.mid`,
+with track 0 carrying the tempo and tracks 1…`num_tracks` carrying the generated
+voices. All notes are on **MIDI channel 0** at **velocity 100**. Track names are
+the config basename's final `_`-segment followed by the track number.
+
+Unlike the stochastic workflow there is **no forward/reversed companion split**
+(`track_direction` does not apply): the elaboration workflow emits exactly
+`num_tracks` tracks. The per-track cycle-order reversal is governed by
+`reverse_cycle_order`.
+
 ## Status
 
-Implemented. The generation logic described above lives in `generator.py`
-(pure cycle/track generation and per-cycle reversal), with `config.py` loading
-and validating the JSON config, `midi_writer.py` emitting the MIDI file, and
-`scripts/generate_stochastic.py` as the CLI entry point
-(`python scripts/generate_stochastic.py config/stochastic/<name>.json [--seed N]`).
-Shared modules live in `src/`; configs for this pathway live in `config/stochastic/`.
+Both workflows are **implemented**. Shared modules live in `src/`:
+`config.py` (loads/validates both config formats — `load_config` for stochastic,
+`load_elaboration_config` for elaboration), `generator.py` (stochastic cycle/
+track generation, per-cycle reversal, and the shared pitch sampler),
+`elaborator.py` (the elaboration grid algorithm), and `midi_writer.py` (MIDI
+output). The CLI entry points are `scripts/generate_stochastic.py` and
+`scripts/generate_elaboration.py`; configs live in `config/stochastic/` and
+`config/elaboration/` respectively.
