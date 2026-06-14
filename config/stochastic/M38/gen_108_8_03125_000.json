@@ -1,0 +1,22 @@
+{
+  "seed": 42,
+  "track_direction": "both",
+  "tempo": 108,
+  "beats_per_bar": 4,
+  "divisions_per_beat": 4,
+  "bars_per_cycle": 8,
+  "base_pitch": 55,
+  "note_probability": [7,0,3,0,5,2,0,6,0,4,0,1],
+  "division_start_probability": [12,2,2,8,10,2,2,8,10,2,2,8,10,2,6,4],
+  "step_length_scale":3,
+  "interval_gravity": 3,
+  "pitch_gravity": 8 ,
+  "ending_gravity": 24,
+  "max_pitch_range":24,
+  "rest_probability": 0.1,
+  "random_number_change_probability": 0.03125,
+  "start_cycle_on_base_pitch": true,
+  "num_tracks": 1,
+  "total_cycles": 130,
+  "output_dir": "data/output"
+}

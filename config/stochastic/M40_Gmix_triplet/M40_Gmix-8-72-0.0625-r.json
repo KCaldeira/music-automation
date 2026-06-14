@@ -1,0 +1,23 @@
+{
+  "seed": 42,
+  "track_direction": "reversed",
+  "description": "4 bar G Mixolydian with intermediate ending gravity no start on first triplet reversed (more random)",
+  "tempo": 108,
+  "beats_per_bar": 4,
+  "divisions_per_beat": 3,
+  "bars_per_cycle": 8,
+  "base_pitch": 55,
+  "note_probability": [7,0,3,0,5,1,0,6,0,2,4,0],
+  "division_start_probability": [3,1,4,3,1,5,3,1,4,3,1,5],
+  "step_length_scale":3,
+  "interval_gravity": 3,
+  "pitch_gravity": 8 ,
+  "ending_gravity": 72,
+  "max_pitch_range":24,
+  "rest_probability": 0.1,
+  "random_number_change_probability": 0.0625,
+  "start_cycle_on_base_pitch": true,
+  "num_tracks": 2,
+  "total_cycles": 130,
+  "output_dir": "data/output"
+}

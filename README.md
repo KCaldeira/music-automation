@@ -1,6 +1,6 @@
 # music-automation
 
-Randomly generates MIDI files for testing, driven by a JSON config (e.g. `config/test.json`).
+Randomly generates MIDI files for testing, driven by a JSON config (e.g. `config/stochastic/test.json`).
 
 ## Concepts
 
@@ -16,11 +16,11 @@ A single function generates one cycle's worth of notes for a track. The top-leve
 
 ### Steps per bar
 
-A **bar** contains `divisions_per_beat * beats_per_bar` steps. This is the unit over which `beat_start_probability` is defined (see below).
+A **bar** contains `divisions_per_beat * beats_per_bar` steps. This is the unit over which `division_start_probability` is defined (see below).
 
 ## Configuration
 
-Config is read from a JSON file (e.g. `config/test.json`). Fields:
+Config is read from a JSON file (e.g. `config/stochastic/test.json`). Fields:
 
 | Field | Meaning |
 |---|---|
@@ -30,10 +30,13 @@ Config is read from a JSON file (e.g. `config/test.json`). Fields:
 | `bars_per_cycle` | Number of bars in one generated cycle. |
 | `base_pitch` | MIDI pitch that serves as the reference / center. |
 | `note_probability` | Length-12 array of relative weights for the 12 pitch classes (semitones above `base_pitch`, mod 12). Index 0 is the root. |
-| `beat_start_probability` | Length-(`divisions_per_beat * beats_per_bar`) array of relative weights for which step within a bar a note may start on. |
+| `division_start_probability` | Length-(`divisions_per_beat * beats_per_bar`) array of relative weights for which step within a bar a note may start on. |
 | `max_pitch_range` | Half-width (in semitones) of the allowed pitch range around `base_pitch`. The allowed pitches are `base_pitch - max_pitch_range` through `base_pitch + max_pitch_range`, inclusive — a total of `2 * max_pitch_range + 1` pitches. E.g. `base_pitch = 60`, `max_pitch_range = 24` gives pitches 36–84. |
-| `step_gravity` | _TBD — controls something about step (timing) selection._ |
-| `pitch_gravity` | _TBD — controls something about pitch selection._ |
+| `interval_gravity` | Gaussian width (semitones, `> 0`) of the penalty on the interval from the previous note when choosing a pitch (Step 2). Smaller = smoother, more stepwise motion; larger = bigger leaps allowed. Factor: `exp(-(pitch - prev_pitch)² / interval_gravity²)`. |
+| `pitch_gravity` | Gaussian width (semitones, `> 0`) of the pull toward `base_pitch` (registral center). Used both when choosing a pitch (Step 2) and when deciding early termination (Step 5). Smaller = stays near center; larger = wider register. Factor: `exp(-(pitch - base_pitch)² / pitch_gravity²)`. |
+| `step_length_scale` | Gaussian width (steps, `> 0`) controlling how far ahead the next note may start, i.e. the note-length scale (Step 3). Smaller = shorter notes / next start nearby; larger = longer notes / can jump further ahead. Factor: `exp(-(step - current_step)² / step_length_scale²)`. |
+| `ending_gravity` | Gaussian width (steps, `> 0`) controlling early cycle termination vs. distance from the cycle end (Step 5). Larger = cycles more likely to terminate sooner. Factor: `exp(-(steps_per_cycle - current_step)² / ending_gravity²)`. |
+| `rest_probability` | Ceiling in `[0, 1]` on the per-note chance of being converted to a rest (Step 4). Actual chance is `rest_probability * (1 - attractiveness / max_attractiveness)`, so less-attractive notes (low pitch-class and/or beat weight) are more likely to become rests. A rest keeps its duration but emits no MIDI. |
 | `num_tracks` | Number of parallel MIDI tracks to generate. |
 | `total_cycles` | Number of cycles to generate in the output file. |
 | `output_dir` | Directory to write the resulting `.mid` file into. |
@@ -50,10 +53,10 @@ Generation of one cycle proceeds in steps. The first step is to expand the user-
 
 ### Step 1 — Expand weight arrays
 
-**Per-step start weights.** `beat_start_probability` covers a single bar (length `divisions_per_beat * beats_per_bar`). It is **tiled** `bars_per_cycle` times to produce `beat_start_list`, a per-step weight vector of length `steps_per_cycle`:
+**Per-step start weights.** `division_start_probability` covers a single bar (length `divisions_per_beat * beats_per_bar`). It is **tiled** `bars_per_cycle` times to produce `division_start_list`, a per-step weight vector of length `steps_per_cycle`:
 
 ```
-beat_start_list[s] = beat_start_probability[s mod (divisions_per_beat * beats_per_bar)]
+division_start_list[s] = division_start_probability[s mod (divisions_per_beat * beats_per_bar)]
 ```
 
 **Per-pitch weights.** `note_probability` covers one octave (length 12), with index `0` aligned to `base_pitch`. It is **tiled across the full pitch range** so that MIDI pitch `p` gets weight `note_probability[(p - base_pitch) mod 12]`. Two parallel length-`(2 * max_pitch_range + 1)` arrays result:
@@ -110,29 +113,29 @@ The virtual final index `steps_per_cycle` represents the **end-of-cycle** option
 
 **Build the candidate weight vector.**
 
-1. Start with a length-`(steps_per_cycle + 1)` copy of `beat_start_list`, with `beat_start_list[0]` repeated in the extra slot (this is the natural periodic extension — slot `steps_per_cycle` is conceptually "step 0 of the next cycle"):
+1. Start with a length-`(steps_per_cycle + 1)` copy of `division_start_list`, with `division_start_list[0]` repeated in the extra slot (this is the natural periodic extension — slot `steps_per_cycle` is conceptually "step 0 of the next cycle"):
 
    ```
-   beat_start_list_ext = concatenate(beat_start_list, [beat_start_list[0]])
+   division_start_list_ext = concatenate(division_start_list, [division_start_list[0]])
    ```
 
 2. Mask invalid candidates. The next note must begin strictly after `current_step`, so zero out indices `0 … current_step` inclusive. Remember the total raw weight removed:
 
    ```
-   eliminated = sum(beat_start_list_ext[0 : current_step + 1])
-   beat_start_list_ext[0 : current_step + 1] = 0
+   eliminated = sum(division_start_list_ext[0 : current_step + 1])
+   division_start_list_ext[0 : current_step + 1] = 0
    ```
 
-3. Recycle the eliminated mass into the end-of-cycle slot. (`beat_start_list[0]` is always masked because `current_step ≥ 0`, so the periodic-extension value never functions as a future candidate; the slot is "free" to repurpose for the eliminated mass.)
+3. Recycle the eliminated mass into the end-of-cycle slot. (`division_start_list[0]` is always masked because `current_step ≥ 0`, so the periodic-extension value never functions as a future candidate; the slot is "free" to repurpose for the eliminated mass.)
 
    ```
-   beat_start_list_ext[steps_per_cycle] = eliminated
+   division_start_list_ext[steps_per_cycle] = eliminated
    ```
 
 **Weight by step-length scale.** A Gaussian falloff (width `step_length_scale`) makes near-future starts more likely than far-future ones, and — because the end-of-cycle slot sits at distance `steps_per_cycle - current_step` from the current step — naturally suppresses end-of-cycle when `current_step` is far from the boundary, while letting it dominate as `current_step` approaches the boundary:
 
 ```
-next_note_start_prob_raw = beat_start_list_ext
+next_note_start_prob_raw = division_start_list_ext
                          * exp( -(step_number - current_step)**2 / step_length_scale**2 )
 ```
 
@@ -164,10 +167,10 @@ For a note with pitch `p` starting at step index `s` (within its cycle, `0 ≤ s
 
 ```
 pitch_weight = note_probability[(p - base_pitch) mod 12]
-step_weight  = beat_start_probability[s mod (divisions_per_beat * beats_per_bar)]
+step_weight  = division_start_probability[s mod (divisions_per_beat * beats_per_bar)]
 
 attractiveness     = pitch_weight * step_weight
-max_attractiveness = max(note_probability) * max(beat_start_probability)
+max_attractiveness = max(note_probability) * max(division_start_probability)
 p_rest             = rest_probability * (1 - attractiveness / max_attractiveness)
 ```
 
@@ -191,7 +194,7 @@ For a note with pitch `p` starting at step `current_step` within its cycle:
 
 ```
 pitch_weight = note_probability[(p - base_pitch) mod 12]
-step_weight  = beat_start_probability[current_step mod (divisions_per_beat * beats_per_bar)]
+step_weight  = division_start_probability[current_step mod (divisions_per_beat * beats_per_bar)]
 
 p_terminate = (pitch_weight * step_weight / max_attractiveness)
             * exp( -(steps_per_cycle - current_step)**2 / ending_gravity**2 )
@@ -242,7 +245,7 @@ The generator produces a **single MIDI file** per run, written to `output_dir`. 
 <config_basename>_<YYYYMMDD>_<HHMMSS>.mid
 ```
 
-For example, running with `config/test.json` produces something like `test_20260511_142307.mid` inside `output_dir`. The timestamp ensures successive runs don't overwrite each other.
+For example, running with `config/stochastic/test.json` produces something like `test_20260511_142307.mid` inside `output_dir`. The timestamp ensures successive runs don't overwrite each other.
 
 The file is a standard Type 1 (multi-track) MIDI file with the following structure:
 
@@ -292,4 +295,9 @@ All notes remain on MIDI channel 0.
 
 ## Status
 
-Specification in progress. Generation logic for individual cycles is being defined section by section; code will follow once the README is complete.
+Implemented. The generation logic described above lives in `generator.py`
+(pure cycle/track generation and per-cycle reversal), with `config.py` loading
+and validating the JSON config, `midi_writer.py` emitting the MIDI file, and
+`scripts/generate_stochastic.py` as the CLI entry point
+(`python scripts/generate_stochastic.py config/stochastic/<name>.json [--seed N]`).
+Shared modules live in `src/`; configs for this pathway live in `config/stochastic/`.

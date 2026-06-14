@@ -1,0 +1,376 @@
+# plan.txt — Spec for a new workflow (sibling to main.py)
+
+Status: DRAFT — co-authored by Ken + Claude. Nothing here is final.
+Convention: lines beginning with "Q:" are open questions for Ken.
+            lines beginning with "A:" are Ken's answers.
+
+================================================================
+1. ONE-SENTENCE GOAL
+================================================================
+What is this new workflow supposed to produce, in one sentence?
+
+A: <fill in>
+
+
+================================================================
+2. HOW IT DIFFERS FROM main.py
+================================================================
+The existing main.py workflow:
+  - loads a JSON config + builds a seeded/random RNG
+  - generates num_tracks forward tracks (generator.generate_track), cycle-by-cycle
+  - optionally derives time-reversed companion tracks
+  - converts tracks -> MIDI note events, writes ONE timestamped .mid file
+  - prints a per-track summary
+
+What should the NEW workflow do instead / in addition?
+
+A: <fill in — bullet the differences>
+
+
+================================================================
+3. INPUTS
+================================================================
+Q: Same JSON config format, or new/extra fields?
+A: Mostly same (Section 8 fields carry over). NEW fields so far:
+   - division_change_probability  (see Section 5; weight array, tiled like
+     division_start_probability)
+   - division_rest_probability    (see Section 5; DIRECT probabilities in [0,1],
+     tiled like division_start_probability — NOT normalized weights)
+   - division_extension_probability (see Section 5; DIRECT probabilities in
+     [0,1], same form as division_rest_probability)
+   - changes_per_cycle              (positive int, default 1; edits applied per
+     cycle transition)
+   - reverse_cycle_order            (bool, default true; reverse cycle order at
+     output)
+
+Q: Single config, multiple configs, or a directory of configs?
+A:
+
+Q: Any new command-line arguments?
+A:
+
+
+================================================================
+4. OUTPUTS
+================================================================
+Q: Still one .mid file? Multiple files? Other formats (e.g. CSV, MusicXML)?
+A:
+
+Q: Naming / output-directory scheme?
+A:
+
+
+================================================================
+5. CORE BEHAVIOR / ALGORITHM
+================================================================
+Describe the generation logic that differs from generator.generate_track.
+Reuse existing generator functions where possible?
+
+A:
+
+--- FRAMING CONVENTION (Ken, 2026-06-13) -------------------------------------
+The whole algorithm will be DESCRIBED as a FORWARD process, because that makes
+the logic simpler to state. The eventual desired output reverses the ORDER OF
+THE CYCLES (cycle k of N becomes the k-th-from-last cycle in the output); the
+cycles' internal contents are NOT mirrored. This cycle-order reversal is a
+single transformation applied at the END, after all forward generation is done.
+
+  NOTE — do not confuse with existing generator.reverse_track(): that mirrors
+  events WITHIN each cycle (time-reverses each cycle's contents) and is a
+  different operation. The new "reverse the order of the cycles" keeps each
+  cycle's contents forward and only reorders the sequence of cycles.
+
+  Q: When cycle order is reversed, is there any cross-cycle state that needs
+     special handling (e.g. the RNG drift table, or prev_pitch carry-over)?
+     For now we describe forward; flag anything that the final reversal must
+     account for as we go.
+  A: <fill in as the spec develops>
+
+--- FORWARD PROCESS, step by step (building up) ------------------------------
+[Cycle 0 / initial state]
+  Start with ONE note:
+    - pitch    = base_pitch
+    - start    = step 0
+    - duration = the entire cycle (steps_per_cycle, typically 4 or 8 bars)
+  i.e. a single sustained tonic spanning the whole first cycle.
+
+  (Since the final output reverses cycle order, this simplest cycle ends up as
+   the LAST cycle of the piece — a sustained tonic resolution. Confirm later.)
+
+[Terminology note]
+  Ken uses "divisions" where the existing code uses "steps":
+    divisions_per_bar   == steps_per_bar   == divisions_per_beat * beats_per_bar
+    divisions_per_cycle == steps_per_cycle == divisions_per_bar * bars_per_cycle
+  (May rename steps_* -> divisions_* in code later for consistency; TBD.)
+
+[Length convention for the weight/probability arrays]
+  division_start_probability is CONCEPTUALLY length divisions_per_cycle.
+  If supplied at length divisions_per_bar, it is REPLICATED (tiled) bars_per_cycle
+  times up to divisions_per_cycle. (Same tiling the current code already does.)
+
+  SCALAR BROADCAST (Ken, 2026-06-13): any of these per-division vectors may be
+  given in the config as a SCALAR instead of a list; a scalar is expanded to the
+  full required length with every entry equal to that scalar. Applies to:
+  division_start_probability, division_change_probability, division_rest_probability,
+  division_extension_probability. (So accepted input lengths per vector: scalar,
+  divisions_per_bar [tiled], or divisions_per_cycle.)
+
+[NEW PARAMETER] division_change_probability
+  - Same format as division_start_probability: a non-negative weight array,
+    conceptually length divisions_per_cycle (tiled up from divisions_per_bar if
+    given at bar length). Divide by its sum to get the probability of selecting
+    each division.
+  - PURPOSE: at each elaboration step we pick ONE division of the cycle at which
+    to effect a change, sampled with probability proportional to this array.
+    (This is the per-step "where do we act" distribution — distinct from
+    division_start_probability, which weights where notes may START.)
+  Q: Confirm it can be given at either divisions_per_bar or divisions_per_cycle
+     length (tiled like division_start_probability)?  A: <confirm>
+
+[FORWARD ELABORATION STEP — one iteration]
+  1. Pick a division d in the cycle to change, sampled ∝ division_change_probability.
+  2. Classify the chosen division d into exactly one of three cases:
+       (a) it is a NOTE START
+       (b) it is a REST
+       (c) it is in the MIDDLE of a (sustained) note
+  3. Apply the transition rule for that case.  <-- RULES COMING NEXT PROMPT
+
+[CYCLING / TRACK STRUCTURE (Ken, 2026-06-13)]
+  Outer structure mirrors main.py: uses num_tracks, total_cycles, tempo, etc.
+  Per track, cycles are built up by ACCUMULATING elaboration:
+     forward cycle 0           = the single sustained base_pitch note (simplest)
+     forward cycle k+1         = forward cycle k + further elaboration step(s)
+  So each successive forward cycle is a MORE elaborated version of the previous
+  (the per-step rules a/b/c are applied to evolve cycle k into cycle k+1).
+
+  DEFAULT: reverse the ORDER OF THE CYCLES before output. Net effect in the
+  final piece: it STARTS complicated (most-elaborated cycle first) and CONVERGES
+  to a single note held for an entire cycle at the end (forward cycle 0 last).
+
+  DECIDED (Ken, 2026-06-13):
+   - Changes per cycle transition: default 1. NEW PARAM changes_per_cycle
+     (positive int, default 1) lets the user apply N changes per k->k+1
+     transition. Each of the N changes re-picks a division via
+     division_change_probability against the CURRENT (already-partly-edited)
+     state, and classifies/edits per cases a/b/c.
+   - Cycle-order reversal: controlled by a config flag, DEFAULT = reversed.
+     Naming TBD (suggest reverse_cycle_order: true).
+   - Elaboration is PURELY CUMULATIVE: cycle k+1 is literally cycle k with the
+     changes_per_cycle additional edits applied (grids are nested).
+  Q: Do the num_tracks tracks each evolve INDEPENDENTLY from their own
+     single-note seed? A: <confirm — assumed yes>
+
+[NEW PARAMETER] division_rest_probability
+  - A vector shaped like division_change_probability (length divisions_per_cycle,
+    tiled from divisions_per_bar if given at bar length).
+  - BUT its values are DIRECT PROBABILITIES in [0,1], NOT weights to normalize.
+    e.g. 0.1 at division d => 10% chance of converting to a rest at d.
+    (Contrast: division_start_probability / division_change_probability are
+    relative weights, used via value/sum.)
+
+[TRANSITION RULES]
+  case (a) NOTE START at division d:
+     With probability division_rest_probability[d]:
+         -> convert the note to a REST (pitch=None; timing/duration unchanged).
+     Otherwise (prob 1 - division_rest_probability[d]):
+         -> REPLACE the note's pitch with a freshly sampled pitch, using the
+            EXACT same pitch-selection algorithm and JSON keys as main.py's
+            pathway: generator.sample_pitch(...) driven by note_probability,
+            interval_gravity, pitch_gravity, base_pitch (and start_cycle_on_base_pitch
+            for the first note). Duration/start unchanged; only the pitch value changes.
+         Q: For this resample, what is prev_pitch? (main.py uses the previously
+            chosen note's pitch.) Here, is it the pitch of the immediately
+            PRECEDING note in the current cycle? And does base_pitch apply if d
+            is the first note of the cycle?  A: <confirm>
+
+  case (b) REST at division d:
+     Two possible outcomes: BECOME A NOTE START, or EXTEND THE PRECEDING NOTE.
+     Extending is only possible if a note is SOUNDING on the preceding division
+     d-1 (a note-start at d-1, or a sustained note that started earlier).
+
+     Let p_ext = division_extension_probability[d]  (see new param below).
+
+     If a note is sounding on division d-1:
+         draw u ~ U[0,1):
+           u < p_ext  -> EXTEND the preceding note forward to cover d, then run
+                         the FORWARD-EXTENSION SUBROUTINE starting at d+1.
+           else       -> START A NEW NOTE at d: pick its pitch via main.py's
+                         method (generator.sample_pitch with note_probability,
+                         interval_gravity, pitch_gravity, base_pitch); the note
+                         initially covers division d, then run the FORWARD-
+                         EXTENSION SUBROUTINE starting at d+1 to set its length.
+     If NO note is sounding on division d-1:
+         Q: extension impossible -> do we automatically START A NEW NOTE at d
+            (skipping the p_ext draw), with pitch + length as in the "new note"
+            branch above?  A: <confirm — assumed YES for now>
+
+     Edge Q: if d == 0 (first division of the cycle), is there a "preceding
+        division"? (no preceding within the cycle; across the cycle boundary?)
+        Assumed: no preceding note -> new note.  A: <confirm>
+
+  FORWARD-EXTENSION SUBROUTINE (shared; sets how far a note extends):
+     Given a note currently ending at division j-1, try to absorb division j:
+       - if j is a NOTE START -> STOP (cannot overlap the next note).
+       - if j is a REST -> draw u ~ U[0,1):
+              u < division_extension_probability[j] -> absorb j into the note,
+                  increment j, repeat;
+              else -> STOP.
+       - (also stop at end of cycle / when j exceeds the cycle.)
+     Result: the note grows over consecutive rest-divisions, gated by an
+     independent extension draw per division, stopping at the first failed draw
+     or the next note start.
+
+  case (c) MID-NOTE at division d (d is a SUSTAIN division of a note that
+     started earlier and continues at d):
+     CUT the note in two at d. The first segment [note_start .. d-1] stays a
+     note with the original pitch. The SECOND segment [d .. note_end] (its
+     duration = the remaining length of the existing note from d onward) becomes:
+       with probability division_rest_probability[d]  -> a REST
+       otherwise                                       -> a NEW NOTE START at the
+            SAME pitch value as the original note (a re-articulation).
+     No new param (reuses division_rest_probability). No pitch resampling and no
+     length change — it is purely splitting one note into two equal-content
+     halves at d and optionally silencing the second half.
+     NOTE (Ken): "we may change this later" — the choice to reuse
+     division_rest_probability here is provisional.
+
+     In grid terms: division d flips SUSTAIN -> {REST for d..end} OR
+     {NOTE-START(same pitch) at d, SUSTAIN for d+1..end}.
+
+[REPRESENTATION IMPLICATION]
+  This elaboration operates naturally on a PER-DIVISION grid where each of the
+  divisions_per_cycle divisions is in one of: NOTE-START(pitch), SUSTAIN
+  (continuation of the note that started earlier), or REST. Classifying a
+  division (cases a/b/c) and editing in place is easy in this representation;
+  the StepEvent list (start_step,duration) is derivable from it. (Design note —
+  the new workflow likely uses a grid representation internally, converting to
+  StepEvent/MIDI at the end.)
+
+
+================================================================
+6. WHAT TO REUSE vs. WRITE NEW
+================================================================
+Existing modules: config.py, generator.py, midi_writer.py, main.py
+
+DECIDED (Ken, 2026-06-13) — naming + on-disk layout:
+  Target structure:
+    src/
+      config.py        (shared loader/validation; extend for new params)
+      midi_writer.py    (shared, reuse as-is)
+      generator.py      (the STOCHASTIC algorithm — current generator.py)
+      elaborator.py     (NEW — the elaboration algorithm: grid, cases a/b/c,
+                         forward-extension subroutine, cumulative cycles)
+    scripts/
+      generate_stochastic.py    (was main.py; thin CLI over generator.py)
+      generate_elaboration.py   (NEW; thin CLI over elaborator.py)
+    config/
+      stochastic/      (existing configs move here)
+      elaboration/     (new configs)
+
+  Notes / implications:
+    - Entry scripts in scripts/ must import the src/ modules. Since we chose
+      "src/ + scripts/" (not a packaged pyproject), scripts will add the repo's
+      src/ to sys.path (small bootstrap at top of each script) OR we run via a
+      path shim. Decide exact mechanism at implementation time.
+    - midi_writer.py reused unchanged. config.py shared but EXTENDED to validate
+      the new params (division_change_probability, division_rest_probability,
+      division_extension_probability, changes_per_cycle, reverse_cycle_order)
+      and the scalar/bar/cycle length normalization + scalar broadcast.
+    - Existing config files relocate to config/stochastic/ (update any docs/paths;
+      README examples reference config/test.json -> config/stochastic/test.json).
+
+Q: Reuse config.py as a single shared loader for BOTH pathways (with pathway-
+   specific required-key sets), or split into two loaders? A: <assume shared>
+
+
+================================================================
+7. OPEN QUESTIONS / NOTES
+================================================================
+-
+
+
+================================================================
+8. SHARED CONFIG PARAMETERS  (definitions carry over UNCHANGED)
+================================================================
+These keep the exact meaning they have in the current main.py / generator.py
+workflow. The new workflow assumes these definitions are fixed. Descriptions
+below are taken from the ACTUAL code (config.py validation + generator.py math),
+which is authoritative; note the README is partly stale (it still says
+"step_gravity" — the real keys are step_length_scale / interval_gravity /
+ending_gravity).
+
+--- Grid / timing -------------------------------------------------------------
+tempo                 BPM. Number or int, > 0.
+beats_per_bar         Time-signature numerator: beats in one bar. Positive int.
+divisions_per_beat    Subdivisions of a beat; 1 step = 1 subdivision
+                      (3 = triplets, 4 = sixteenths). Positive int.
+bars_per_cycle        Number of bars in one generated cycle. Positive int.
+   (derived)          steps_per_bar   = divisions_per_beat * beats_per_bar
+                      steps_per_cycle = steps_per_bar * bars_per_cycle
+
+--- Pitch material ------------------------------------------------------------
+base_pitch            Reference / center MIDI pitch. Int in [0, 127].
+max_pitch_range       Half-width (semitones) of the allowed pitch band around
+                      base_pitch. Allowed pitches: base_pitch - r .. base_pitch
+                      + r inclusive (2r+1 pitches). Non-neg int; band must stay
+                      within [0, 127].
+note_probability      Length-12 array of relative weights for the 12 pitch
+                      classes, indexed by (pitch - base_pitch) mod 12. Index 0
+                      = the root (base_pitch's class). Non-negative; at least
+                      one positive entry. Used for pitch sampling AND (via
+                      "attractiveness") for the rest and termination decisions.
+division_start_probability
+                      Length = divisions_per_beat * beats_per_bar (i.e. ONE
+                      bar). Relative weights for which step WITHIN A BAR a note
+                      may start on. Tiled across bars_per_cycle to cover the
+                      whole cycle. Non-negative; at least one positive entry.
+
+--- "Gravity" shaping params (all Gaussian widths; must be > 0) ---------------
+  These act as the sigma in exp(-(distance)^2 / param^2): LARGER = looser /
+  wider spread, SMALLER = tighter pull.
+interval_gravity      Pulls each next pitch toward the PREVIOUS pitch (melodic
+                      smoothness). Smaller => stepwise motion; larger => bigger
+                      leaps allowed.  factor: exp(-(pitch-prev_pitch)^2 / g^2)
+pitch_gravity         Pulls pitch toward base_pitch (registral center). Also
+                      reused in the termination weighting. Smaller => stays near
+                      center; larger => wider register.
+                      factor: exp(-(pitch-base_pitch)^2 / g^2)
+step_length_scale     Controls how far ahead the NEXT note start is drawn, i.e.
+                      note-length scale. Smaller => shorter notes / next start
+                      close by; larger => can extend/jump further ahead.
+                      factor: exp(-(step-current_step)^2 / g^2)
+ending_gravity        Controls cycle EARLY-TERMINATION probability vs. distance
+                      from the cycle end. Larger => more likely to terminate the
+                      cycle sooner.
+                      factor: exp(-(steps_per_cycle-current_step)^2 / g^2)
+  (derived)           max_attractiveness = max(note_probability)
+                                           * max(division_start_probability)
+                      — normalizer used by both the rest sweep and termination.
+
+--- Rests / density -----------------------------------------------------------
+rest_probability      Base scale in [0, 1] for converting a generated note into
+                      a rest. Per note the actual chance is
+                      rest_probability * (1 - (pw*sw)/max_attractiveness),
+                      so "less attractive" notes (low pitch+beat weight) are
+                      more likely to become rests. A rest keeps its duration but
+                      emits no MIDI (StepEvent.pitch = None).
+
+--- Output / counts -----------------------------------------------------------
+num_tracks            Number of parallel forward tracks to generate. Positive int.
+total_cycles          Number of cycles generated per track. Positive int.
+output_dir            Directory to write the .mid into. Non-empty string.
+
+--- Optional (have defaults) --------------------------------------------------
+random_number_change_probability  [0,1], default 1.0. Per-cycle drift of the
+                      RNG table: 1.0 = every cycle fully fresh/independent;
+                      0.0 = whole track reuses one table (identical cycles);
+                      in between = that fraction of cells re-drawn each cycle.
+start_cycle_on_base_pitch  bool, default false. If true, the first note of every
+                      cycle is forced to base_pitch (bypasses pitch sampling).
+seed                  null or non-negative int, default null (= fresh random).
+                      CLI --seed overrides it.
+track_direction       "forward" | "reversed" | "both", default "both".
+reversal_last_note_start_step   int <= 0, default 0. Shifts each reversed cycle
+                      so its last event starts -N steps before cycle end, then
+                      clips to the cycle. 0 = pure mirror.
+description / comment  Free-text; ignored by the generator (human reference only).
