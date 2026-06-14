@@ -28,6 +28,20 @@ class StepEvent:
 Track = list[list[StepEvent]]
 
 
+def build_pitch_lists(base_pitch, max_pitch_range, note_probability):
+    """Return (note_pitch_list, note_probability_list).
+
+    note_pitch_list = the candidate MIDI pitches base_pitch-r .. base_pitch+r;
+    note_probability_list = note_probability tiled across that range by pitch
+    class ((pitch - base_pitch) % 12). Shared by both generation pathways.
+    """
+    note_pitch_list = np.arange(base_pitch - max_pitch_range,
+                                base_pitch + max_pitch_range + 1)
+    note_prob = np.asarray(note_probability, dtype=float)
+    note_probability_list = note_prob[(note_pitch_list - base_pitch) % 12]
+    return note_pitch_list, note_probability_list
+
+
 def expand_weights(cfg: dict):
     """README Step 1. Returns (note_pitch_list, note_probability_list, division_start_list, steps_per_cycle)."""
     steps_per_bar = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
@@ -38,23 +52,32 @@ def expand_weights(cfg: dict):
         cfg["bars_per_cycle"],
     )
 
-    base = cfg["base_pitch"]
-    r = cfg["max_pitch_range"]
-    note_pitch_list = np.arange(base - r, base + r + 1)
-    note_prob = np.asarray(cfg["note_probability"], dtype=float)
-    note_probability_list = note_prob[(note_pitch_list - base) % 12]
+    note_pitch_list, note_probability_list = build_pitch_lists(
+        cfg["base_pitch"], cfg["max_pitch_range"], cfg["note_probability"],
+    )
 
     return note_pitch_list, note_probability_list, division_start_list, steps_per_cycle
 
 
 def sample_pitch(prev_pitch, note_pitch_list, note_probability_list,
-                 base_pitch, interval_gravity, pitch_gravity, u):
-    """README Step 2. `u` is a single uniform[0, 1) random."""
+                 base_pitch, interval_gravity, pitch_gravity, u, exclude_pitch=None):
+    """README Step 2. `u` is a single uniform[0, 1) random.
+
+    If `exclude_pitch` is given, that pitch is removed from the candidate
+    distribution (its weight zeroed) so the drawn pitch differs from it. If
+    excluding it leaves no positive-weight candidate, `exclude_pitch` is
+    returned unchanged (caller treats this as "no change"). With the default
+    `exclude_pitch=None` the behavior is identical to before.
+    """
     raw = (
         note_probability_list
         * np.exp(-(note_pitch_list - prev_pitch) ** 2 / interval_gravity ** 2)
         * np.exp(-(note_pitch_list - base_pitch) ** 2 / pitch_gravity ** 2)
     )
+    if exclude_pitch is not None:
+        raw = np.where(note_pitch_list == exclude_pitch, 0.0, raw)
+        if raw.sum() <= 0:
+            return int(exclude_pitch)
     cum = np.cumsum(raw / raw.sum())
     idx = int(np.searchsorted(cum, u))
     return int(note_pitch_list[idx])
