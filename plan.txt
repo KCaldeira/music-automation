@@ -34,10 +34,16 @@ Q: Same JSON config format, or new/extra fields?
 A: Mostly same (Section 8 fields carry over). NEW fields so far:
    - division_change_probability  (see Section 5; weight array, tiled like
      division_start_probability)
-   - division_rest_probability    (see Section 5; DIRECT probabilities in [0,1],
-     tiled like division_start_probability — NOT normalized weights)
-   - division_extension_probability (see Section 5; DIRECT probabilities in
-     [0,1], same form as division_rest_probability)
+   - division_rest_probability    (see Section 5; DIRECT probabilities in [0,1])
+   - division_start_probability   (see Section 5; DIRECT probabilities in [0,1];
+     elaboration meaning: how much a division wants to be a note START; the
+     sustain-through/extension probability is 1 - this. RENAMED 2026-06-14 from
+     division_extension_probability with the sign reversed.)
+   NAMING NOTE: the elaboration division_start_probability shares its NAME with
+   the stochastic key but NOT its numeric convention -- stochastic = relative
+   weights for where notes may start; elaboration = a direct [0,1] probability
+   (1 - extend). Both express "where notes want to start." Separate configs /
+   loaders, so no runtime conflict.
    - changes_per_cycle              (positive int, default 1; edits applied per
      cycle transition)
    - reverse_cycle_order            (bool, default true; reverse cycle order at
@@ -110,20 +116,19 @@ single transformation applied at the END, after all forward generation is done.
 
   SCALAR BROADCAST (Ken, 2026-06-13): any of these per-division vectors may be
   given in the config as a SCALAR instead of a list; a scalar is expanded to the
-  full required length with every entry equal to that scalar. Applies to:
-  division_start_probability, division_change_probability, division_rest_probability,
-  division_extension_probability. (So accepted input lengths per vector: scalar,
-  divisions_per_bar [tiled], or divisions_per_cycle.)
+  full required length with every entry equal to that scalar. Applies to the
+  elaboration vectors division_change_probability, division_rest_probability,
+  division_start_probability, and likewise the stochastic division_start_probability.
+  (So accepted input lengths per vector: scalar, divisions_per_bar [tiled], or
+  divisions_per_cycle.)
 
 [NEW PARAMETER] division_change_probability
-  - Same format as division_start_probability: a non-negative weight array,
-    conceptually length divisions_per_cycle (tiled up from divisions_per_bar if
-    given at bar length). Divide by its sum to get the probability of selecting
-    each division.
+  - A non-negative WEIGHT array, conceptually length divisions_per_cycle (tiled
+    up from divisions_per_bar if given at bar length). Divide by its sum to get
+    the probability of selecting each division.
   - PURPOSE: at each elaboration step we pick ONE division of the cycle at which
     to effect a change, sampled with probability proportional to this array.
-    (This is the per-step "where do we act" distribution — distinct from
-    division_start_probability, which weights where notes may START.)
+    (This is the per-step "where do we act" distribution.)
   Accepted lengths: scalar (broadcast), divisions_per_bar (tiled), or
   divisions_per_cycle. (CONFIRMED via the general length convention above.)
 
@@ -200,7 +205,9 @@ single transformation applied at the END, after all forward generation is done.
      Extending is only possible if a note is SOUNDING on the preceding division
      d-1 (a note-start at d-1, or a sustained note that started earlier).
 
-     Let p_ext = division_extension_probability[d]  (see new param below).
+     Let p_ext = 1 - division_start_probability[d]  (see new param below).
+     (division_start_probability is the per-division "wants to be a START" prob;
+      the extend/sustain-through probability is its complement.)
 
      If a note is sounding on division d-1:
          draw u ~ U[0,1):
@@ -228,7 +235,7 @@ single transformation applied at the END, after all forward generation is done.
      Given a note currently ending at division j-1, try to absorb division j:
        - if j is a NOTE START -> STOP (cannot overlap the next note).
        - if j is a REST -> draw u ~ U[0,1):
-              u < division_extension_probability[j] -> absorb j into the note,
+              u < 1 - division_start_probability[j] -> absorb j into the note,
                   increment j, repeat;
               else -> STOP.
        - (also stop at end of cycle / when j exceeds the cycle.)
@@ -290,7 +297,7 @@ DECIDED (Ken, 2026-06-13) — naming + on-disk layout:
       path shim. Decide exact mechanism at implementation time.
     - midi_writer.py reused unchanged. config.py shared but EXTENDED to validate
       the new params (division_change_probability, division_rest_probability,
-      division_extension_probability, changes_per_cycle, reverse_cycle_order)
+      division_start_probability, changes_per_cycle, reverse_cycle_order)
       and the scalar/bar/cycle length normalization + scalar broadcast.
     - Existing config files relocate to config/stochastic/ (update any docs/paths;
       README examples reference config/test.json -> config/stochastic/test.json).

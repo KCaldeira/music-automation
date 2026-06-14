@@ -96,15 +96,17 @@ def forward_extension(grid, note_start_d, cfg, rng):
     """Absorb following REST divisions into the note starting at note_start_d.
 
     Walk forward from the note's current end+1: stop at a note START or the cycle
-    end; over a REST, absorb it with probability division_extension_probability
-    at that division, else stop.
+    end; over a REST, absorb it (sustain through) with probability
+    1 - division_start_probability at that division, else stop. A high
+    division_start_probability[j] thus resists sustaining through j, leaving it
+    free to begin a note.
     """
     n = len(grid.kind)
     pitch = grid.pitch[note_start_d]
-    ext = cfg["division_extension_probability"]
+    start_prob = cfg["division_start_probability"]
     j = note_end(grid, note_start_d) + 1
     while j < n and grid.kind[j] == REST:
-        if rng.random() < ext[j]:
+        if rng.random() < 1.0 - start_prob[j]:
             grid.kind[j] = SUSTAIN
             grid.pitch[j] = pitch
             j += 1
@@ -126,7 +128,7 @@ def classify_and_apply(grid, d, cfg, pitch_lists, rng):
                 grid.pitch[j] = new_pitch
 
     elif k == REST:                                         # case (b): rest
-        if is_sounding(grid, d - 1) and rng.random() < cfg["division_extension_probability"][d]:
+        if is_sounding(grid, d - 1) and rng.random() < 1.0 - cfg["division_start_probability"][d]:
             ps = note_start_index(grid, d - 1)              # extend preceding note
             grid.kind[d] = SUSTAIN
             grid.pitch[d] = grid.pitch[ps]

@@ -67,7 +67,7 @@ tempo, beats_per_bar, divisions_per_beat, bars_per_cycle,
 base_pitch, note_probability, max_pitch_range,
 interval_gravity, pitch_gravity,
 division_change_probability, division_rest_probability,
-division_extension_probability,
+division_start_probability,
 num_tracks, total_cycles, output_dir
 ```
 Optional (with defaults):
@@ -104,7 +104,8 @@ Validation specifics:
   (so the stored cfg value is always a full divisions_per_cycle-length list):
     - division_change_probability: entries >= 0, sum > 0 (it is a WEIGHT vector).
     - division_rest_probability: each entry in [0, 1] (DIRECT probabilities).
-    - division_extension_probability: each entry in [0, 1] (DIRECT probabilities).
+    - division_start_probability: each entry in [0, 1] (DIRECT probability that a
+      division wants to be a note START; extend/sustain-through prob = 1 - this).
 - Reject any stochastic-only keys if present? -> NO (ignore unknown keys; just
   warn-free). But explicitly do NOT require them.
 
@@ -163,7 +164,7 @@ def forward_extension(grid, note_start_d, cfg, rng) -> None
     #   if j >= divisions_per_cycle: stop
     #   if kind[j] == START: stop (cannot overlap next note)
     #   if kind[j] == REST:
-    #        if rng.random() < division_extension_probability[j]:
+    #        if rng.random() < 1 - division_start_probability[j]:
     #             kind[j] = SUSTAIN; pitch[j] = pitch[note_start_d]; continue
     #        else: stop
 ```
@@ -187,7 +188,7 @@ def apply_change(grid, d, cfg, pitch_lists, rng) -> None
 
     elif k == REST:                                 # case (b)
         if is_sounding(grid, d-1):
-            if rng.random() < cfg["division_extension_probability"][d]:
+            if rng.random() < 1 - cfg["division_start_probability"][d]:
                 # extend preceding note to cover d, then keep extending
                 pd = note_start_index(grid, d-1)
                 grid.kind[d] = SUSTAIN; grid.pitch[d] = grid.pitch[pd]
@@ -296,9 +297,13 @@ stochastic-only keys, plus the elaboration params.
 ## 7. Resolved design decisions (Ken, 2026-06-13)
 - case (a) NOTE-START -> rest converts the WHOLE note to a rest. CONFIRMED
   (rules as written; may revisit later — Ken curates output by ear).
-- division_start_probability is GONE for the elaboration pathway (superseded by
-  division_change_probability + division_rest_probability). CONFIRMED. May be
-  reintroduced in some form later.
+- division_start_probability: the ORIGINAL stochastic-style start weighting was
+  dropped from elaboration (superseded by division_change_probability +
+  division_rest_probability). UPDATE 2026-06-14: a NEW elaboration
+  division_start_probability was introduced by renaming/inverting
+  division_extension_probability (extend prob = 1 - division_start_probability),
+  so a high value yields more onsets on that division. Direct [0,1] probability;
+  shares the name (not the numeric convention) with the stochastic key.
 - start_cycle_on_base_pitch is DROPPED from elaboration: cycle 0 is always the
   single base_pitch note, so cycle 1 inherently starts on base_pitch. CONFIRMED.
 - PITCH MUST-CHANGE rule: case (a) resample excludes the current pitch (new pitch

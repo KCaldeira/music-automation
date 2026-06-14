@@ -141,7 +141,7 @@ ELAB_REQUIRED_KEYS = (
     "pitch_gravity",
     "division_change_probability",
     "division_rest_probability",
-    "division_extension_probability",
+    "division_start_probability",
     "num_tracks",
     "total_cycles",
     "output_dir",
@@ -238,7 +238,7 @@ def _validate_elaboration(cfg: dict, path: str) -> None:
     dpb = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
     dpc = dpb * cfg["bars_per_cycle"]
     for k in ("division_change_probability", "division_rest_probability",
-              "division_extension_probability"):
+              "division_start_probability"):
         try:
             cfg[k] = normalize_division_vector(cfg[k], dpb, dpc, k)
         except ValueError as e:
@@ -250,7 +250,7 @@ def _validate_elaboration(cfg: dict, path: str) -> None:
     if sum(cfg["division_change_probability"]) <= 0:
         fail("division_change_probability must have at least one positive entry")
 
-    # rest / extension are DIRECT probabilities: each entry in [0, 1].
-    for k in ("division_rest_probability", "division_extension_probability"):
+    # rest / start are DIRECT probabilities: each entry in [0, 1].
+    for k in ("division_rest_probability", "division_start_probability"):
         if any(not (0.0 <= v <= 1.0) for v in cfg[k]):
             fail(f"{k} entries must each be in [0, 1]")

@@ -19,8 +19,8 @@
   "comment_rest": "DIRECT probability (0..1) that a note-start or note-split second-half becomes a rest. Scalar => uniform across all divisions.",
   "division_rest_probability": 0.1,
 
-  "comment_ext": "DIRECT probability (0..1) of extending a note over a following rest division. Scalar => uniform.",
-  "division_extension_probability": 0.5,
+  "comment_start": "DIRECT probability (0..1) that a division wants to be a note START rather than be sustained through. Extension (sustain-through) probability is 1 - this. High value => more onsets on that division. Scalar => uniform.",
+  "division_start_probability": 0.5,
 
   "changes_per_cycle": 1,
   "reverse_cycle_order": true,
