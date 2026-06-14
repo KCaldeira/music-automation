@@ -124,8 +124,8 @@ single transformation applied at the END, after all forward generation is done.
     to effect a change, sampled with probability proportional to this array.
     (This is the per-step "where do we act" distribution — distinct from
     division_start_probability, which weights where notes may START.)
-  Q: Confirm it can be given at either divisions_per_bar or divisions_per_cycle
-     length (tiled like division_start_probability)?  A: <confirm>
+  Accepted lengths: scalar (broadcast), divisions_per_bar (tiled), or
+  divisions_per_cycle. (CONFIRMED via the general length convention above.)
 
 [FORWARD ELABORATION STEP — one iteration]
   1. Pick a division d in the cycle to change, sampled ∝ division_change_probability.
@@ -157,8 +157,14 @@ single transformation applied at the END, after all forward generation is done.
      Naming TBD (suggest reverse_cycle_order: true).
    - Elaboration is PURELY CUMULATIVE: cycle k+1 is literally cycle k with the
      changes_per_cycle additional edits applied (grids are nested).
-  Q: Do the num_tracks tracks each evolve INDEPENDENTLY from their own
-     single-note seed? A: <confirm — assumed yes>
+  CONFIRMED (Ken): the num_tracks tracks each evolve INDEPENDENTLY from their
+  own single-note seed.
+  CONFIRMED (Ken): cycle-order reversal flag is named reverse_cycle_order
+     (bool, default true).
+  CONFIRMED (Ken): elaboration configs will NOT include
+     random_number_change_probability (that cycle-drift param belongs to the
+     stochastic pathway; elaboration's cross-cycle continuity comes from the
+     cumulative edit model instead).
 
 [NEW PARAMETER] division_rest_probability
   - A vector shaped like division_change_probability (length divisions_per_cycle,
@@ -176,12 +182,18 @@ single transformation applied at the END, after all forward generation is done.
          -> REPLACE the note's pitch with a freshly sampled pitch, using the
             EXACT same pitch-selection algorithm and JSON keys as main.py's
             pathway: generator.sample_pitch(...) driven by note_probability,
-            interval_gravity, pitch_gravity, base_pitch (and start_cycle_on_base_pitch
-            for the first note). Duration/start unchanged; only the pitch value changes.
-         Q: For this resample, what is prev_pitch? (main.py uses the previously
-            chosen note's pitch.) Here, is it the pitch of the immediately
-            PRECEDING note in the current cycle? And does base_pitch apply if d
-            is the first note of the cycle?  A: <confirm>
+            interval_gravity, pitch_gravity, base_pitch. Duration/start unchanged;
+            only the pitch value changes.
+            MUST-CHANGE RULE (Ken): because we have DECIDED to change this note,
+            the new pitch must DIFFER from the current pitch. Exclude the current
+            pitch from the candidate distribution (zero its weight, renormalize).
+            Fallback: if exclusion leaves no positive-weight candidate, leave the
+            note unchanged.
+         prev_pitch (CONFIRMED, Ken): the pitch of the NEAREST note sounding
+            BEFORE division d (the most recent note-start at or before d-1). If
+            none exists (d == 0, or only rests precede d), use base_pitch.
+            [Same prev_pitch rule applies wherever sample_pitch is invoked in
+             the elaboration pathway — see case (b) new-note branch.]
 
   case (b) REST at division d:
      Two possible outcomes: BECOME A NOTE START, or EXTEND THE PRECEDING NOTE.
@@ -199,14 +211,18 @@ single transformation applied at the END, after all forward generation is done.
                          interval_gravity, pitch_gravity, base_pitch); the note
                          initially covers division d, then run the FORWARD-
                          EXTENSION SUBROUTINE starting at d+1 to set its length.
+                         NOTE (Ken): for a NEW note (this branch), the sampled
+                         pitch MAY equal the previous note's pitch (no exclusion)
+                         -- re-articulating the same pitch after a rest is fine.
+                         (Contrast case (a) resample, which must change.)
      If NO note is sounding on division d-1:
-         Q: extension impossible -> do we automatically START A NEW NOTE at d
-            (skipping the p_ext draw), with pitch + length as in the "new note"
-            branch above?  A: <confirm — assumed YES for now>
+         extension impossible -> START A NEW NOTE at d (skip the p_ext draw),
+         with pitch + length as in the "new note" branch above. (CONFIRMED.)
 
-     Edge Q: if d == 0 (first division of the cycle), is there a "preceding
-        division"? (no preceding within the cycle; across the cycle boundary?)
-        Assumed: no preceding note -> new note.  A: <confirm>
+     Edge: d == 0 (first division of the cycle). CONFIRMED (Ken):
+         - treat prev_pitch as base_pitch for pitch sampling, BUT
+         - the note at d==0 CANNOT be extended backward (no preceding note),
+           so case (b) at d==0 always -> START A NEW NOTE.
 
   FORWARD-EXTENSION SUBROUTINE (shared; sets how far a note extends):
      Given a note currently ending at division j-1, try to absorb division j:

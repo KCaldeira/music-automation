@@ -1,0 +1,31 @@
+{
+  "description": "Elaboration test config. Modeled on gen_108_4_triplet_03125_004.json (108 bpm, 4/4, triplet subdivisions, 4 bars/cycle, base pitch G3=55, Gm-pentatonic bias) but for the elaboration pathway: drops stochastic-only keys and adds the division_* elaboration params. divisions_per_bar = 3*4 = 12; divisions_per_cycle = 12*4 = 48.",
+
+  "tempo": 108,
+  "beats_per_bar": 4,
+  "divisions_per_beat": 3,
+  "bars_per_cycle": 4,
+
+  "base_pitch": 55,
+  "note_probability": [7,0,0, 4,0,5,0,5,0,0,3,0],
+  "max_pitch_range": 24,
+
+  "interval_gravity": 3,
+  "pitch_gravity": 8,
+
+  "comment_change": "Where to act each step (WEIGHT vector, used value/sum). Given at bar length 12, tiled across 4 bars. Biases changes toward strong divisions.",
+  "division_change_probability": [5,1,2,4,1,2,5,1,2,4,1,2],
+
+  "comment_rest": "DIRECT probability (0..1) that a note-start or note-split second-half becomes a rest. Scalar => uniform across all divisions.",
+  "division_rest_probability": 0.1,
+
+  "comment_ext": "DIRECT probability (0..1) of extending a note over a following rest division. Scalar => uniform.",
+  "division_extension_probability": 0.5,
+
+  "changes_per_cycle": 1,
+  "reverse_cycle_order": true,
+
+  "num_tracks": 8,
+  "total_cycles": 96,
+  "output_dir": "data/output"
+}
