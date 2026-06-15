@@ -13,13 +13,13 @@
   "pitch_gravity": 8,
 
   "comment_change": "Where to act each step (WEIGHT vector, used value/sum). Given at bar length 12, tiled across 4 bars. Biases changes toward strong divisions.",
-  "division_change_probability": [5,1,2,4,1,2,5,1,2,4,1,2],
+  "division_change_probability": [5,1,2,4,1,2,5,1,2,4,1,2, 5,1,2,4,1,2,5,1,2,4,1,2, 5,1,2,4,1,2,5,1,2,4,1,2, 5,1,2,4,1,2,5,1,2,4,0.1,0.2],
 
   "comment_rest": "DIRECT probability (0..1) that a note-start or note-split second-half becomes a rest. Derived per division as ((6 - division_change_probability)/6)**2.",
-  "division_rest_probability": [0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444, 0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444],
+  "division_rest_probability": [0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444, 0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444, 0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444, 0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444, 0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444, 0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444, 0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444, 0.027778, 0.694444, 0.444444, 0.111111, 0.95, 0.9],
 
   "comment_start": "DIRECT probability (0..1) that a division wants to be a note START rather than be sustained through. Extension (sustain-through) probability is 1 - this. Derived per division as division_change_probability/6.",
-  "division_start_probability": [0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333, 0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333],
+  "division_start_probability": [0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333, 0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333, 0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333, 0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333, 0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333, 0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333, 0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333, 0.833333, 0.166667, 0.333333, 0.666667, 0.025, 0.05],
 
   "changes_per_cycle": 1,
   "reverse_cycle_order": true,
