@@ -9,7 +9,6 @@ from pathlib import Path
 
 
 REQUIRED_KEYS = (
-    "tempo",
     "beats_per_bar",
     "divisions_per_beat",
     "bars_per_cycle",
@@ -53,9 +52,6 @@ def _validate(cfg: dict, path: str) -> None:
               "num_tracks", "total_cycles"):
         if not isinstance(cfg[k], int) or cfg[k] < 1:
             fail(f"{k} must be a positive int (got {cfg[k]!r})")
-
-    if not isinstance(cfg["tempo"], (int, float)) or cfg["tempo"] <= 0:
-        fail(f"tempo must be > 0 (got {cfg['tempo']!r})")
 
     if len(cfg["note_probability"]) != 12:
         fail(f"note_probability must have length 12 (got {len(cfg['note_probability'])})")
@@ -130,7 +126,6 @@ def _validate(cfg: dict, path: str) -> None:
 # --------------------------------------------------------------------------- #
 
 ELAB_REQUIRED_KEYS = (
-    "tempo",
     "beats_per_bar",
     "divisions_per_beat",
     "bars_per_cycle",
@@ -195,9 +190,6 @@ def _validate_elaboration(cfg: dict, path: str) -> None:
               "num_tracks", "total_cycles", "changes_per_cycle"):
         if not isinstance(cfg[k], int) or isinstance(cfg[k], bool) or cfg[k] < 1:
             fail(f"{k} must be a positive int (got {cfg[k]!r})")
-
-    if not isinstance(cfg["tempo"], (int, float)) or cfg["tempo"] <= 0:
-        fail(f"tempo must be > 0 (got {cfg['tempo']!r})")
 
     if len(cfg["note_probability"]) != 12:
         fail(f"note_probability must have length 12 (got {len(cfg['note_probability'])})")

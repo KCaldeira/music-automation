@@ -1,7 +1,6 @@
 {
   "seed": 42,
   "track_direction": "both",
-  "tempo": 108,
   "beats_per_bar": 4,
   "divisions_per_beat": 4,
   "bars_per_cycle": 8,

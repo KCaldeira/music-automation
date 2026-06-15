@@ -58,7 +58,7 @@ def main():
         midi_tracks.append(midi_writer.track_to_note_events(t, steps_per_cycle, ticks_per_step))
         track_names.append(f"{name_base} {i}")
 
-    midi_writer.write_midi(midi_tracks, cfg["tempo"], str(output_path), track_names)
+    midi_writer.write_midi(midi_tracks, str(output_path), track_names)
 
     elapsed = time.perf_counter() - t0
     print_summary(event_tracks, output_path, seed, elapsed)

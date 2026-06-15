@@ -2,7 +2,6 @@
   "seed": 42,
   "track_direction": "both",
   "description": "4 bar Gm pentatonic with greater ending gravity (i.e., more likely to end early)",
-  "tempo": 108,
   "beats_per_bar": 4,
   "divisions_per_beat": 4,
   "bars_per_cycle": 4,

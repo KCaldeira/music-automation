@@ -1,6 +1,5 @@
 {
   "comment": "108 bpm, 4/4 time, triplet subdivisions, 4 bars per cycle, base pitch G3 (55), with a bias towards Gm pentatonic.",
-  "tempo": 108,
   "beats_per_bar": 4,
   "divisions_per_beat": 3,
   "bars_per_cycle": 8,

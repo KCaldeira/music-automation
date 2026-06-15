@@ -1,7 +1,6 @@
 {
   "description": "Elaboration test config.  (108 bpm, 4/4, triplet subdivisions, 4 bars/cycle, base pitch A3=57, Am-pentatonic bias)",
 
-  "tempo": 108,
   "beats_per_bar": 4,
   "divisions_per_beat": 3,
   "bars_per_cycle": 4,

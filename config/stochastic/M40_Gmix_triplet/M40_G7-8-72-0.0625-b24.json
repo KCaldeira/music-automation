@@ -2,7 +2,6 @@
   "seed": 42,
   "track_direction": "forward",
   "description": "4 bar G dominant 7th with intermediate ending gravity no start on first triplet reversed (more random)",
-  "tempo": 108,
   "beats_per_bar": 4,
   "divisions_per_beat": 3,
   "bars_per_cycle": 8,

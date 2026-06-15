@@ -4,7 +4,7 @@ Builds music by progressively elaborating a single sustained base_pitch note.
 Cycle 0 is that one note; each later forward cycle is the previous cycle plus
 `changes_per_cycle` edits (purely cumulative). By default the ORDER OF THE CYCLES
 is reversed at output, so the piece starts complex and converges to one held
-note. See plan.txt / execution_plan.md for the full spec.
+note. See the README for the full spec.
 
 No MIDI / file I/O lives here. Pitch selection reuses generator.sample_pitch and
 generator.build_pitch_lists; output StepEvents reuse generator.StepEvent.

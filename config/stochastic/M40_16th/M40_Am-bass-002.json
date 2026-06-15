@@ -2,7 +2,6 @@
   "seed": 42,
   "track_direction": "forward",
   "description": "2 bar Am pentatonic bassline",
-  "tempo": 108,
   "beats_per_bar": 8,
   "divisions_per_beat": 4,
   "bars_per_cycle": 1,

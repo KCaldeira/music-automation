@@ -2,7 +2,6 @@
   "seed": 42,
   "track_direction": "reversed",
   "description": "4 bar Gm pentatonic with intermediate ending gravity no start on first triplet reversed (i.e., more likely to end early)",
-  "tempo": 108,
   "beats_per_bar": 4,
   "divisions_per_beat": 3,
   "bars_per_cycle": 4,
