@@ -1,0 +1,30 @@
+{
+  "description": "Elaboration test config.  (108 bpm, 4/4, triplet subdivisions, 4 bars/cycle, base pitch A3=57, Am-pentatonic bias)",
+
+  "beats_per_bar": 4,
+  "divisions_per_beat": 3,
+  "bars_per_cycle": 2,
+
+  "base_pitch": 57,
+  "note_probability": [7,0,0, 4,0,5,0,5,0,0,3,0],
+  "max_pitch_range": 24,
+
+  "interval_gravity": 3,
+  "pitch_gravity": 8,
+
+  "comment_change": "Where to act each step (WEIGHT vector, used value/sum). Given at bar length 12, tiled across 4 bars. Biases changes toward strong divisions.",
+  "division_change_probability": [5,1,2,4,1,2,5,1,2,4,1,2],
+
+  "comment_rest": "DIRECT probability (0..1) that a note-start or note-split second-half becomes a rest. Derived per division as ((6 - division_change_probability)/6)**2.",
+  "division_rest_probability": [0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444, 0.027778, 0.694444, 0.444444, 0.111111, 0.694444, 0.444444],
+
+  "comment_start": "DIRECT probability (0..1) that a division wants to be a note START rather than be sustained through. Extension (sustain-through) probability is 1 - this. Derived per division as division_change_probability/6.",
+  "division_start_probability": [0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333, 0.833333, 0.166667, 0.333333, 0.666667, 0.166667, 0.333333],
+
+  "changes_per_cycle": 1,
+  "reverse_cycle_order": true,
+
+  "num_tracks": 8,
+  "total_cycles": 192,
+  "output_dir": "data/output"
+}

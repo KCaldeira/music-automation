@@ -51,8 +51,8 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = Path(cfg["output_dir"]) / f"{stem}_{timestamp}.mid"
 
-    # Track names: the part of the config filename after the last "_", then the number.
-    name_base = stem.rsplit("_", 1)[-1]
+    # Track names: the config filename (no extension), then the track number.
+    name_base = stem
     midi_tracks, track_names = [], []
     for i, t in enumerate(event_tracks, start=1):
         midi_tracks.append(midi_writer.track_to_note_events(t, steps_per_cycle, ticks_per_step))

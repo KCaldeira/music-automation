@@ -60,9 +60,9 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = Path(cfg["output_dir"]) / f"{stem}_{timestamp}.mid"
 
-    # Track names: the part of the config filename after the last "_", then the
-    # track number (with "R" appended for the reversed companion tracks).
-    name_base = stem.rsplit("_", 1)[-1]
+    # Track names: the config filename (no extension), then the track number
+    # (with "R" appended for the reversed companion tracks).
+    name_base = stem
     midi_tracks, track_names = [], []
     if want_forward:
         for i, (t, _) in enumerate(forward, start=1):

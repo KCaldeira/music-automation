@@ -16,6 +16,21 @@ python scripts/generate_stochastic.py  config/stochastic/<name>.json  [--seed N]
 python scripts/generate_elaboration.py config/elaboration/<name>.json [--seed N]
 ```
 
+For example, using configs that ship with the repo:
+
+```
+# Stochastic
+python scripts/generate_stochastic.py  config/stochastic/test.json --seed 1
+python scripts/generate_stochastic.py  config/stochastic/gen_108_4_triplet_03125_001.json
+
+# Elaboration
+python scripts/generate_elaboration.py config/elaboration/test.json --seed 1
+python scripts/generate_elaboration.py config/elaboration/AmP_4_1.json
+```
+
+Each writes a timestamped `.mid` file into the config's `output_dir` (by default
+`data/output/`).
+
 Shared modules live in `src/` (`config.py`, `generator.py`, `elaborator.py`,
 `midi_writer.py`). The **Shared concepts** below apply to both workflows; the
 **Stochastic workflow** and **Elaboration workflow** sections then document each
@@ -439,7 +454,7 @@ The MIDI output is the **same format** as the stochastic workflow: a single
 Type 1 file in `output_dir` named `<config_basename>_<YYYYMMDD>_<HHMMSS>.mid`,
 with tracks 0…`num_tracks`−1 carrying the generated
 voices. All notes are on **MIDI channel 0** at **velocity 100**. Track names are
-the config basename's final `_`-segment followed by the track number.
+the config filename (without extension) followed by the track number.
 
 Unlike the stochastic workflow there is **no forward/reversed companion split**
 (`track_direction` does not apply): the elaboration workflow emits exactly
