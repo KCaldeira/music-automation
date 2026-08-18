@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import config as config_loader
 import elaborator
+import generator
 import midi_writer
 
 
@@ -43,25 +44,57 @@ def main():
     steps_per_cycle = cfg["divisions_per_beat"] * cfg["beats_per_bar"] * cfg["bars_per_cycle"]
     ticks_per_step = midi_writer.PPQN // cfg["divisions_per_beat"]
 
-    # Each track is a list[Grid]; convert to a Track (list[list[StepEvent]]).
+    # Each track is a list[Grid] in generation order (simple -> complex);
+    # convert to a Track (list[list[StepEvent]]).
     tracks = [elaborator.generate_track(cfg, rng) for _ in range(cfg["num_tracks"])]
-    event_tracks = [[elaborator.grid_to_stepevents(g) for g in track] for track in tracks]
+    base_tracks = [[elaborator.grid_to_stepevents(g) for g in track] for track in tracks]
+
+    # Two independent reversal axes, each derived from the same generated cycles
+    # (no extra random draws):
+    #   reverse_cycle_order — the order of whole cycles along the track.
+    #   track_direction     — time reversal of the events within each cycle.
+    # Suffix "C" marks reversed cycle order, "R" marks the in-cycle mirror. "C"
+    # only appears when reverse_cycle_order is "both", where both orderings are
+    # written and need distinguishing.
+    rco = cfg["reverse_cycle_order"]
+    if rco == "both":
+        cycle_orders = [("", False), ("C", True)]
+    else:
+        cycle_orders = [("", bool(rco))]
+
+    direction = cfg["track_direction"]
+    want_forward = direction in ("forward", "both")
+    want_reversed = direction in ("reversed", "both")
+
+    # Build every requested variant: (suffix, list of Tracks parallel to base_tracks).
+    variants = []
+    for c_suffix, do_reverse_order in cycle_orders:
+        ordered = [list(reversed(t)) if do_reverse_order else t for t in base_tracks]
+        if want_forward:
+            variants.append((c_suffix, ordered))
+        if want_reversed:
+            variants.append((c_suffix + "R", [
+                generator.reverse_track(t, steps_per_cycle,
+                                        cfg["reversal_last_note_start_step"])
+                for t in ordered
+            ]))
 
     stem = Path(args.config_path).stem
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = Path(cfg["output_dir"]) / f"{stem}_{timestamp}.mid"
 
-    # Track names: the config filename (no extension), then the track number.
-    name_base = stem
+    # Track names: the config filename (no extension), the track number, then the
+    # variant suffix (e.g. "Am_4_1 3CR").
     midi_tracks, track_names = [], []
-    for i, t in enumerate(event_tracks, start=1):
-        midi_tracks.append(midi_writer.track_to_note_events(t, steps_per_cycle, ticks_per_step))
-        track_names.append(f"{name_base} {i}")
+    for suffix, tracks_for_variant in variants:
+        for i, t in enumerate(tracks_for_variant, start=1):
+            midi_tracks.append(midi_writer.track_to_note_events(t, steps_per_cycle, ticks_per_step))
+            track_names.append(f"{stem} {i}{suffix}")
 
     midi_writer.write_midi(midi_tracks, str(output_path), track_names)
 
     elapsed = time.perf_counter() - t0
-    print_summary(event_tracks, output_path, seed, elapsed)
+    print_summary(variants, output_path, seed, elapsed)
 
 
 def _count(track):
@@ -75,18 +108,28 @@ def _count(track):
     return notes, rests
 
 
-def print_summary(event_tracks, output_path, seed, elapsed):
+VARIANT_LABEL = {
+    "":   "Track",
+    "R":  "Reversed track",
+    "C":  "Reversed-cycle-order track",
+    "CR": "Reversed-cycle-order reversed track",
+}
+
+
+def print_summary(variants, output_path, seed, elapsed):
     print(f"Output: {output_path}")
     print(f"Seed:   {seed if seed is not None else 'random'}")
-    print()
 
     total_notes = total_rests = 0
-    for i, track in enumerate(event_tracks, start=1):
-        notes, rests = _count(track)
-        cycles = len(track)
-        print(f"  Track {i}: {cycles} cycle(s), {notes} note(s), {rests} rest(s)")
-        total_notes += notes
-        total_rests += rests
+    for suffix, tracks_for_variant in variants:
+        print()
+        label = VARIANT_LABEL[suffix]
+        for i, track in enumerate(tracks_for_variant, start=1):
+            notes, rests = _count(track)
+            cycles = len(track)
+            print(f"  {label} {i}{suffix}: {cycles} cycle(s), {notes} note(s), {rests} rest(s)")
+            total_notes += notes
+            total_rests += rests
 
     print()
     print(f"Total: {total_notes} note(s), {total_rests} rest(s) across all MIDI tracks")

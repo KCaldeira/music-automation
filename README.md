@@ -50,7 +50,24 @@ A single function generates one cycle's worth of notes for a track. The top-leve
 
 ### Steps per bar
 
-A **bar** contains `divisions_per_beat * beats_per_bar` steps (one **step** = one **division**; the two terms are used interchangeably). The bar is the natural unit for the per-division weight/probability vectors: any of them may be supplied at bar length and is then tiled across the cycle (see each workflow's configuration below).
+A **bar** contains `divisions_per_beat * beats_per_bar` steps (one **step** = one **division**; the two terms are used interchangeably).
+
+### Length convention for the per-division vectors
+
+Every per-division weight/probability vector in either workflow —
+`division_start_probability` (both workflows), plus `division_change_probability`
+and `division_rest_probability` in the elaboration workflow — is conceptually
+length `divisions_per_cycle`. Each may be supplied as:
+
+- a **`divisions_per_cycle`-length** list — the preferred form, used as-is;
+- a **`divisions_per_bar`-length** list — tiled `bars_per_cycle` times;
+- a **scalar** — broadcast to every division.
+
+Any other length is a config error. The config loader expands the value to full
+`divisions_per_cycle` length before the generator sees it, so the algorithm
+descriptions below always index these vectors by the step's position within the
+**cycle**. Supplying a cycle-length vector is what lets the weights differ from
+bar to bar (e.g. a different ending on the last bar of the cycle).
 
 ## Stochastic workflow: configuration
 
@@ -63,7 +80,7 @@ Config is read from a JSON file (e.g. `config/stochastic/test.json`). Fields:
 | `bars_per_cycle` | Number of bars in one generated cycle. |
 | `base_pitch` | MIDI pitch that serves as the reference / center. |
 | `note_probability` | Length-12 array of relative weights for the 12 pitch classes (semitones above `base_pitch`, mod 12). Index 0 is the root. |
-| `division_start_probability` | Length-(`divisions_per_beat * beats_per_bar`) array of relative weights for which step within a bar a note may start on. |
+| `division_start_probability` | Relative weights for which step of the cycle a note may start on. Length `divisions_per_cycle`, or length `divisions_per_bar` to repeat the same pattern in every bar, or a scalar — see "Length convention for the per-division vectors" above. |
 | `max_pitch_range` | Half-width (in semitones) of the allowed pitch range around `base_pitch`. The allowed pitches are `base_pitch - max_pitch_range` through `base_pitch + max_pitch_range`, inclusive — a total of `2 * max_pitch_range + 1` pitches. E.g. `base_pitch = 60`, `max_pitch_range = 24` gives pitches 36–84. |
 | `interval_gravity` | Gaussian width (semitones, `> 0`) of the penalty on the interval from the previous note when choosing a pitch (Step 2). Smaller = smoother, more stepwise motion; larger = bigger leaps allowed. Factor: `exp(-(pitch - prev_pitch)² / interval_gravity²)`. |
 | `pitch_gravity` | Gaussian width (semitones, `> 0`) of the pull toward `base_pitch` (registral center). Used both when choosing a pitch (Step 2) and when deciding early termination (Step 5). Smaller = stays near center; larger = wider register. Factor: `exp(-(pitch - base_pitch)² / pitch_gravity²)`. |
@@ -86,11 +103,16 @@ Generation of one cycle proceeds in steps. The first step is to expand the user-
 
 ### Step 1 — Expand weight arrays
 
-**Per-step start weights.** `division_start_probability` covers a single bar (length `divisions_per_beat * beats_per_bar`). It is **tiled** `bars_per_cycle` times to produce `division_start_list`, a per-step weight vector of length `steps_per_cycle`:
+**Per-step start weights.** `division_start_probability` becomes `division_start_list`, a per-step weight vector of length `steps_per_cycle`:
 
 ```
-division_start_list[s] = division_start_probability[s mod (divisions_per_beat * beats_per_bar)]
+division_start_list[s] = division_start_probability[s]
 ```
+
+If the config supplied the vector at bar length (or as a scalar), the loader has
+already expanded it to `steps_per_cycle` — see "Length convention for the
+per-division vectors" above — so a bar-length vector gives
+`division_start_list[s] = division_start_probability[s mod divisions_per_bar]`.
 
 **Per-pitch weights.** `note_probability` covers one octave (length 12), with index `0` aligned to `base_pitch`. It is **tiled across the full pitch range** so that MIDI pitch `p` gets weight `note_probability[(p - base_pitch) mod 12]`. Two parallel length-`(2 * max_pitch_range + 1)` arrays result:
 
@@ -194,13 +216,13 @@ duration = next_note_start - current_step       # in steps
 
 ### Step 4 — Convert notes to rests (post-processing sweep)
 
-After all cycles have been generated and each note is known as a triple `(pitch, start_step, duration)`, iterate over every note and decide independently whether to convert it to a rest. A note is more likely to become a rest when its pitch class has low weight, when its start step within the bar has low weight, or both.
+After all cycles have been generated and each note is known as a triple `(pitch, start_step, duration)`, iterate over every note and decide independently whether to convert it to a rest. A note is more likely to become a rest when its pitch class has low weight, when its start step has low weight, or both.
 
 For a note with pitch `p` starting at step index `s` (within its cycle, `0 ≤ s < steps_per_cycle`):
 
 ```
 pitch_weight = note_probability[(p - base_pitch) mod 12]
-step_weight  = division_start_probability[s mod (divisions_per_beat * beats_per_bar)]
+step_weight  = division_start_probability[s]
 
 attractiveness     = pitch_weight * step_weight
 max_attractiveness = max(note_probability) * max(division_start_probability)
@@ -211,7 +233,7 @@ Draw `u ~ Uniform[0, 1)`. If `u < p_rest`, convert the note to a rest. **Convert
 
 **Interpretation of `rest_probability`.** It is the *ceiling* on per-note rest probability:
 
-- A note at the maximum joint weight (the most-favored pitch class on the most-favored step within the bar) has `p_rest = 0` and is never converted.
+- A note at the maximum joint weight (the most-favored pitch class on the most-favored step of the cycle) has `p_rest = 0` and is never converted.
 - A note whose pitch-class weight or start-step weight is `0` has `p_rest = rest_probability`.
 - Notes in between scale linearly in `1 - attractiveness / max_attractiveness`.
 
@@ -227,7 +249,7 @@ For a note with pitch `p` starting at step `current_step` within its cycle:
 
 ```
 pitch_weight = note_probability[(p - base_pitch) mod 12]
-step_weight  = division_start_probability[current_step mod (divisions_per_beat * beats_per_bar)]
+step_weight  = division_start_probability[current_step]
 
 p_terminate = (pitch_weight * step_weight / max_attractiveness)
             * exp( -(steps_per_cycle - current_step)**2 / ending_gravity**2 )
@@ -292,17 +314,23 @@ When `num_tracks > 1`, each track is generated by running the cycle-generation p
 
 ### Time-reversed tracks
 
+This section applies to **both workflows** — `track_direction` and
+`reversal_last_note_start_step` are read by the stochastic and the elaboration
+loader alike, and both scripts call the same `generator.reverse_track`.
+
 When `track_direction` includes reversed tracks (`"reversed"` or `"both"`), each forward track has a **time-reversed companion track** built from the same generated events — no new random draws.
 
-The reversal is performed **per cycle**, independently:
+The reversal is performed **per cycle**, independently, as a true mirror image about the cycle midpoint. An event at `(start_step = s, duration = d)` becomes:
 
-1. For each cycle, take that cycle's ordered event list `[(pitch_or_REST, duration), …]`.
-2. Reverse the list.
-3. Recompute start steps as the cumulative sum of durations in the reversed order, starting at step `0` of that cycle.
+```
+start_step = steps_per_cycle - s - d      (duration unchanged)
+```
 
-What was the last event of forward cycle *k* therefore starts at step `0` of reversed cycle *k*; what was the first event ends at the end of the cycle. Rests stay rests; durations are preserved; cycle boundaries are preserved (each reversed cycle is the same length as its forward partner).
+What was the last event of forward cycle *k* therefore ends at the end of reversed cycle *k*; what was the first event ends at the cycle end mirrored to the start. Rests stay rests; durations are preserved; cycle boundaries are preserved (each reversed cycle is the same length as its forward partner).
 
-In the rare case that the cycle containing the Step 5 termination event has trailing silence (post-termination), that silence is implicit (not an event) and remains as trailing silence in the reversed cycle.
+Mirroring about the midpoint (rather than re-packing events from step `0`) is what makes empty space mirror too: where the cycle containing a Step-5 termination has **trailing** silence, the reversed cycle has that same span as **leading** silence, and the notes sit at the *end* of the cycle. Elaboration cycles always tile the full cycle with note and rest events, so their mirror also fills the cycle exactly.
+
+**Interaction with `reverse_cycle_order` (elaboration only).** The two are independent and compose: `reverse_cycle_order` permutes the order of whole cycles along the track, while `track_direction` mirrors the contents *within* each cycle. Setting both gives a track that runs complex → simple with each cycle's notes also flowing backwards.
 
 **Shifting the last reversed note: `reversal_last_note_start_step`** (optional, integer ≤ 0, default `0`).
 
@@ -314,6 +342,8 @@ After the shift, every event is clipped to the in-cycle range `[0, steps_per_cyc
 - If an earlier event would start before step 0, its start is clamped to 0 and its duration reduced; events whose duration would become ≤ 0 are dropped.
 
 The value `0` is a sentinel meaning "off" (the pure mirror is returned). The key has no effect when `track_direction == "forward"`.
+
+Because an elaboration cycle's events already fill it end to end, a negative `N` there shifts the whole reversed cycle later, truncating the final event to `-N` steps and leaving the first `delta` steps of the cycle silent (`delta` = the duration of the forward cycle's first event, plus `N`).
 
 **MIDI file layout when `track_direction` is `"both"`** (for `num_tracks = N`):
 
@@ -329,9 +359,9 @@ All notes remain on MIDI channel 0.
 Config is read from a JSON file (e.g. `config/elaboration/test.json`). It shares
 the grid/pitch fields with the stochastic workflow but drops the stochastic-only
 keys (`step_length_scale`, `ending_gravity`, `rest_probability`,
-`track_direction`, `reversal_last_note_start_step`,
 `random_number_change_probability`, `start_cycle_on_base_pitch`) and adds the
-`division_*` elaboration parameters.
+`division_*` elaboration parameters. The per-cycle reversal keys
+`track_direction` and `reversal_last_note_start_step` work in both workflows.
 
 | Field | Meaning |
 |---|---|
@@ -344,27 +374,26 @@ keys (`step_length_scale`, `ending_gravity`, `rest_probability`,
 | `division_start_probability` | **Direct probability** in `[0, 1]`: how much a division wants to be a note **onset** rather than be sustained through. The sustain-through (extension) probability is `1 - division_start_probability`. High value ⇒ more onsets on that division. |
 | `division_rest_probability` | **Direct probability** in `[0, 1]`: chance that a selected note-start (case a) or note-split second half (case c) becomes a rest. |
 | `changes_per_cycle` | Optional, default `1`. Number of edits applied per cycle transition (k → k+1). |
-| `reverse_cycle_order` | Optional, default `true`. Reverse the order of cycles at output (complex → single held note). |
+| `reverse_cycle_order` | Optional, default `true`. Reverse the **order of the cycles** at output (complex → single held note). This permutes whole cycles; it does not move notes within a cycle. For that, see `track_direction`. Set to `"both"` to write *both* orderings — the simple → complex and complex → simple versions of the same generated cycles (see "Track variants" below). |
+| `track_direction` | Optional, `"forward"`, `"reversed"`, or `"both"` (default `"forward"` — note this differs from the stochastic default of `"both"`, so existing elaboration configs keep writing exactly `num_tracks` tracks). Selects which tracks are written: only the forward tracks, only their **time-reversed within each cycle** companions, or both. See "Time-reversed tracks" above. Independent of `reverse_cycle_order` — the two can be combined. |
+| `reversal_last_note_start_step` | Optional integer ≤ 0, default `0`. Shifts each reversed cycle so the last reversed event starts `-N` steps before the cycle end, then clips to the cycle. `0` is off (pure mirror). See "Time-reversed tracks" above. |
 | `num_tracks`, `total_cycles`, `output_dir` | Same as the stochastic workflow. |
-| `seed` | Optional RNG seed (overridden by `--seed`). |
+| `seed` | Optional RNG seed (overridden by `--seed`). `null` = a fresh random seed each run. |
 | `description` | Optional free-text note; ignored by the generator. |
 
-**Length convention for the per-division vectors.** Each of
-`division_change_probability`, `division_start_probability`, and
-`division_rest_probability` is conceptually length `divisions_per_cycle`. It may
-be supplied as:
-
-- a **scalar** — broadcast to every division;
-- a **`divisions_per_bar`-length** list — tiled `bars_per_cycle` times;
-- a **`divisions_per_cycle`-length** list — used as-is.
+**Length convention for the per-division vectors.** `division_change_probability`,
+`division_start_probability`, and `division_rest_probability` all follow the
+shared convention described under "Length convention for the per-division
+vectors" above: `divisions_per_cycle`-length (preferred),
+`divisions_per_bar`-length (tiled `bars_per_cycle` times), or a scalar.
 
 > **Note on the shared name `division_start_probability`.** This key exists in
 > *both* workflows but with different numeric conventions. In the **stochastic**
-> config it is a relative **weight** (per bar) for where notes may start; in the
+> config it is a relative **weight** for where notes may start; in the
 > **elaboration** config it is a direct **probability** in `[0, 1]` (equal to
-> `1 -` the extension probability). Both express "where notes want to start." The
-> two workflows use separate config directories and loaders, so there is no
-> runtime conflict.
+> `1 -` the extension probability). Both express "where notes want to start," and
+> both follow the same length convention. The two workflows use separate config
+> directories and loaders, so there is no runtime conflict.
 
 ## Elaboration workflow: algorithm
 
@@ -451,15 +480,40 @@ pitch sampler as the stochastic workflow** (`note_probability` shaped by
 ## Elaboration workflow: output
 
 The MIDI output is the **same format** as the stochastic workflow: a single
-Type 1 file in `output_dir` named `<config_basename>_<YYYYMMDD>_<HHMMSS>.mid`,
-with tracks 0…`num_tracks`−1 carrying the generated
-voices. All notes are on **MIDI channel 0** at **velocity 100**. Track names are
-the config filename (without extension) followed by the track number.
+Type 1 file in `output_dir` named `<config_basename>_<YYYYMMDD>_<HHMMSS>.mid`.
+All notes are on **MIDI channel 0** at **velocity 100**. Track names are the
+config filename (without extension) followed by the track number and a variant
+suffix (see below).
 
-Unlike the stochastic workflow there is **no forward/reversed companion split**
-(`track_direction` does not apply): the elaboration workflow emits exactly
-`num_tracks` tracks. The per-track cycle-order reversal is governed by
-`reverse_cycle_order`.
+### Track variants
+
+The elaboration workflow has **two independent reversal axes**, and each can be
+set to `"both"`. Every variant is derived from the same generated cycles — no
+extra random draws — so a track and its variants are the same material seen
+different ways.
+
+| Axis | Key | What it reverses |
+|---|---|---|
+| Cycle order | `reverse_cycle_order` | the order of whole cycles along the track (simple ↔ complex) |
+| In-cycle time | `track_direction` | the events inside each cycle (mirror about the cycle midpoint) |
+
+Track names get a suffix per axis: **`C`** for reversed cycle order, **`R`** for
+the in-cycle mirror. With both keys set to `"both"` and `num_tracks = N`, the
+file holds `4N` tracks in this order:
+
+| Suffix | Cycle order | In-cycle | Example name |
+|---|---|---|---|
+| *(none)* | simple → complex | forward | `Am_4_1 3` |
+| `R` | simple → complex | mirrored | `Am_4_1 3R` |
+| `C` | complex → simple | forward | `Am_4_1 3C` |
+| `CR` | complex → simple | mirrored | `Am_4_1 3CR` |
+
+The `C` suffix appears **only** when `reverse_cycle_order` is `"both"`. When it
+is `true` or `false` exactly one cycle ordering is written and the names stay as
+before (`3`, `3R`) — so existing configs produce byte-identical output.
+
+Note that in `"both"` mode the unsuffixed track is the *simple → complex*
+ordering; the `C` track is what `reverse_cycle_order: true` produces on its own.
 
 ## Status
 

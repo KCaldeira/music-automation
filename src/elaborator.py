@@ -153,10 +153,14 @@ def pick_division(cfg, rng):
 
 
 def generate_track(cfg, rng):
-    """Build one track's list of Grid cycles (reversed if reverse_cycle_order).
+    """Build one track's list of Grid cycles in GENERATION order (simple first).
 
     Cycle 0 is the single sustained base_pitch note; each subsequent cycle is the
     previous one with `changes_per_cycle` more edits applied (cumulative).
+
+    Applying `reverse_cycle_order` is the caller's job — it is a pure reordering
+    of the returned list, which lets the caller emit both orderings from one set
+    of random draws (`reverse_cycle_order: "both"`).
     """
     dpc = cfg["divisions_per_beat"] * cfg["beats_per_bar"] * cfg["bars_per_cycle"]
     pitch_lists = generator.build_pitch_lists(
@@ -170,8 +174,6 @@ def generate_track(cfg, rng):
             classify_and_apply(grid, d, cfg, pitch_lists, rng)
         cycles.append(copy.deepcopy(grid))
 
-    if cfg["reverse_cycle_order"]:
-        cycles.reverse()
     return cycles
 
 

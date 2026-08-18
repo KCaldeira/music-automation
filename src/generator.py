@@ -47,10 +47,9 @@ def expand_weights(cfg: dict):
     steps_per_bar = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
     steps_per_cycle = steps_per_bar * cfg["bars_per_cycle"]
 
-    division_start_list = np.tile(
-        np.asarray(cfg["division_start_probability"], dtype=float),
-        cfg["bars_per_cycle"],
-    )
+    # The loader has already expanded division_start_probability to steps_per_cycle
+    # (tiling a bar-length vector across the cycle if that is how it was supplied).
+    division_start_list = np.asarray(cfg["division_start_probability"], dtype=float)
 
     note_pitch_list, note_probability_list = build_pitch_lists(
         cfg["base_pitch"], cfg["max_pitch_range"], cfg["note_probability"],
@@ -125,13 +124,12 @@ def apply_rest_sweep(events, cfg, u_rest):
     if rp <= 0:
         return
     max_attract = max(cfg["note_probability"]) * max(cfg["division_start_probability"])
-    steps_per_bar = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
     base = cfg["base_pitch"]
     for i, ev in enumerate(events):
         if ev.pitch is None:
             continue
         pw = cfg["note_probability"][(ev.pitch - base) % 12]
-        sw = cfg["division_start_probability"][ev.start_step % steps_per_bar]
+        sw = cfg["division_start_probability"][ev.start_step]
         p_rest = rp * (1 - (pw * sw) / max_attract)
         if u_rest[i] < p_rest:
             ev.pitch = None

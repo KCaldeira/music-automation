@@ -8,6 +8,48 @@ import json
 from pathlib import Path
 
 
+def normalize_division_vector(value, divisions_per_bar, divisions_per_cycle, name):
+    """Expand a per-division config value to a full divisions_per_cycle list.
+
+    Accepts a scalar (broadcast to every division), a divisions_per_cycle-length
+    list (the preferred form, used as-is), or a divisions_per_bar-length list
+    (tiled bars_per_cycle times). Raises ValueError on any other shape.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a number or list, not a bool")
+    if isinstance(value, (int, float)):
+        return [float(value)] * divisions_per_cycle
+    if isinstance(value, list):
+        if len(value) == divisions_per_cycle:
+            return [float(v) for v in value]
+        if len(value) == divisions_per_bar:
+            bars = divisions_per_cycle // divisions_per_bar
+            return [float(v) for v in value] * bars
+    raise ValueError(
+        f"{name} must be a scalar, a list of length divisions_per_cycle "
+        f"({divisions_per_cycle}), or divisions_per_bar ({divisions_per_bar}); "
+        f"got {value!r}"
+    )
+
+
+def _validate_reversal(cfg, fail):
+    """Validate the per-cycle reversal keys shared by both workflows."""
+    if cfg["track_direction"] not in ("forward", "reversed", "both"):
+        fail(f"track_direction must be 'forward', 'reversed', or 'both' "
+             f"(got {cfg['track_direction']!r})")
+
+    n = cfg["reversal_last_note_start_step"]
+    if isinstance(n, bool) or not isinstance(n, int) or n > 0:
+        fail(f"reversal_last_note_start_step must be an int <= 0 (got {n!r})")
+
+
+def _validate_seed(cfg, fail):
+    """Validate `seed`: null (= a fresh random seed each run) or a non-negative int."""
+    s = cfg["seed"]
+    if s is not None and (isinstance(s, bool) or not isinstance(s, int) or s < 0):
+        fail(f"seed must be null or a non-negative int (got {s!r})")
+
+
 REQUIRED_KEYS = (
     "beats_per_bar",
     "divisions_per_beat",
@@ -56,13 +98,14 @@ def _validate(cfg: dict, path: str) -> None:
     if len(cfg["note_probability"]) != 12:
         fail(f"note_probability must have length 12 (got {len(cfg['note_probability'])})")
 
-    expected_beat_len = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
-    if len(cfg["division_start_probability"]) != expected_beat_len:
-        fail(
-            f"division_start_probability must have length "
-            f"divisions_per_beat * beats_per_bar = {expected_beat_len} "
-            f"(got {len(cfg['division_start_probability'])})"
-        )
+    # Normalize the per-division vector to full divisions_per_cycle length in place.
+    dpb = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
+    dpc = dpb * cfg["bars_per_cycle"]
+    try:
+        cfg["division_start_probability"] = normalize_division_vector(
+            cfg["division_start_probability"], dpb, dpc, "division_start_probability")
+    except ValueError as e:
+        fail(str(e))
 
     if any(w < 0 for w in cfg["note_probability"]):
         fail("note_probability entries must be non-negative")
@@ -108,17 +151,8 @@ def _validate(cfg: dict, path: str) -> None:
     if "description" in cfg and not isinstance(cfg["description"], str):
         fail(f"description must be a string (got {cfg['description']!r})")
 
-    if cfg["seed"] is not None and (not isinstance(cfg["seed"], int)
-                                    or isinstance(cfg["seed"], bool) or cfg["seed"] < 0):
-        fail(f"seed must be null or a non-negative int (got {cfg['seed']!r})")
-
-    if cfg["track_direction"] not in ("forward", "reversed", "both"):
-        fail(f"track_direction must be 'forward', 'reversed', or 'both' "
-             f"(got {cfg['track_direction']!r})")
-
-    n = cfg["reversal_last_note_start_step"]
-    if isinstance(n, bool) or not isinstance(n, int) or n > 0:
-        fail(f"reversal_last_note_start_step must be an int <= 0 (got {n!r})")
+    _validate_seed(cfg, fail)
+    _validate_reversal(cfg, fail)
 
 
 # --------------------------------------------------------------------------- #
@@ -143,30 +177,6 @@ ELAB_REQUIRED_KEYS = (
 )
 
 
-def normalize_division_vector(value, divisions_per_bar, divisions_per_cycle, name):
-    """Expand a per-division config value to a full divisions_per_cycle list.
-
-    Accepts a scalar (broadcast to every division), a divisions_per_bar-length
-    list (tiled bars_per_cycle times), or a divisions_per_cycle-length list
-    (used as-is). Raises ValueError on any other shape.
-    """
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be a number or list, not a bool")
-    if isinstance(value, (int, float)):
-        return [float(value)] * divisions_per_cycle
-    if isinstance(value, list):
-        if len(value) == divisions_per_cycle:
-            return [float(v) for v in value]
-        if len(value) == divisions_per_bar:
-            bars = divisions_per_cycle // divisions_per_bar
-            return [float(v) for v in value] * bars
-    raise ValueError(
-        f"{name} must be a scalar, a list of length divisions_per_bar "
-        f"({divisions_per_bar}), or divisions_per_cycle ({divisions_per_cycle}); "
-        f"got {value!r}"
-    )
-
-
 def load_elaboration_config(path: str) -> dict:
     cfg = json.loads(Path(path).read_text())
 
@@ -177,6 +187,10 @@ def load_elaboration_config(path: str) -> dict:
     cfg.setdefault("changes_per_cycle", 1)
     cfg.setdefault("reverse_cycle_order", True)
     cfg.setdefault("seed", None)
+    # Defaults to "forward" (not "both", as in the stochastic workflow) so that
+    # existing elaboration configs keep writing exactly num_tracks tracks.
+    cfg.setdefault("track_direction", "forward")
+    cfg.setdefault("reversal_last_note_start_step", 0)
 
     _validate_elaboration(cfg, path)
     return cfg
@@ -213,18 +227,18 @@ def _validate_elaboration(cfg: dict, path: str) -> None:
     if low < 0 or high > 127:
         fail(f"base_pitch ± max_pitch_range must stay within [0, 127] (got [{low}, {high}])")
 
-    if not isinstance(cfg["reverse_cycle_order"], bool):
-        fail(f"reverse_cycle_order must be a bool (got {cfg['reverse_cycle_order']!r})")
+    if not isinstance(cfg["reverse_cycle_order"], bool) and cfg["reverse_cycle_order"] != "both":
+        fail(f"reverse_cycle_order must be true, false, or \"both\" "
+             f"(got {cfg['reverse_cycle_order']!r})")
+
+    _validate_seed(cfg, fail)
+    _validate_reversal(cfg, fail)
 
     if not isinstance(cfg["output_dir"], str) or not cfg["output_dir"]:
         fail("output_dir must be a non-empty string")
 
     if "description" in cfg and not isinstance(cfg["description"], str):
         fail(f"description must be a string (got {cfg['description']!r})")
-
-    if cfg["seed"] is not None and (not isinstance(cfg["seed"], int)
-                                    or isinstance(cfg["seed"], bool) or cfg["seed"] < 0):
-        fail(f"seed must be null or a non-negative int (got {cfg['seed']!r})")
 
     # Normalize per-division vectors to full divisions_per_cycle length in place.
     dpb = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
