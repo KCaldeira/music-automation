@@ -1,0 +1,17 @@
+{
+  // Dark emerald window tint so this repo's VS Code window is easy to tell apart.
+  "workbench.colorCustomizations": {
+    "titleBar.activeBackground": "#083425",
+    "titleBar.activeForeground": "#e0f5ec",
+    "titleBar.inactiveBackground": "#06261b",
+    "titleBar.inactiveForeground": "#a6c6b8",
+    "activityBar.background": "#083425",
+    "activityBar.foreground": "#e0f5ec",
+    "statusBar.background": "#083425",
+    "statusBar.foreground": "#e0f5ec",
+    "sideBar.background": "#041710",
+    "editor.background": "#03130d",
+    "panel.background": "#03130d",
+    "terminal.background": "#03130d"
+  }
+}
