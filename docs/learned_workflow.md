@@ -382,6 +382,43 @@ into the next cycle.
 The output is ordinary forward time. Only the **order of filling** is backwards; nothing
 is reversed afterwards.
 
+### 6b. Chord progression (post-processing, optional)
+
+After the melody is generated, and before anything is written, the cycle can be laid
+over a **chord progression**, one chord per bar, e.g. `["Am7", "Em7", "Dm7", "C6"]`
+(Ken, 2026-11-22).
+
+- **Chord tones move.** A note whose pitch class belongs to the **source chord** (the
+  chord in the tables header, Am7 here) moves to the **nearest tone of its bar's chord**,
+  in either direction. A note already in the new chord stays.
+- **Passing tones stay.** A note that was not a source-chord tone (B, D or F over Am7)
+  is not touched.
+- **Ties.** When the nearest target tone is equally far above and below, Ken's rules
+  decide: root beats third, fifth beats third, fifth beats sixth, root beats seventh.
+  For pairs he did not rank, the code uses the order root > fifth > third > sixth >
+  seventh.
+- **Which chord applies.** A note takes the chord of the bar it **starts** in. Notes never
+  cross a bar line, because of the half-bar cut.
+- **Effect.** This is not a transposition: only the chord tones shift, each by a
+  semitone or a whole tone at most.
+
+With source Am7 (A C E G), these are the only changes:
+
+| Bar | Chord | Changes |
+|---|---|---|
+| 1 | Am7 | none |
+| 2 | Em7 (E G B D) | A → B (tie G/B, fifth wins), C → B |
+| 3 | Dm7 (D F A C) | E → F, G → A (tie F/A, fifth wins) |
+| 4 | C6 (C E G A) | none: C6 has the same notes as Am7 |
+
+So each cycle still ends on A5.
+
+Chords are written as a root (C, F#, Bb, …) plus one of `""` (major), `m`, `6`,
+`m6`, `7`, `m7`, `maj7`, `m7b5`, `dim`, `dim7`. Optional config keys:
+`chord_progression` (a list, or a space-separated string, with as many chords as the
+form has bars) and `source_chord` (default: the tables' `chord`). The code is in
+`src/chords.py`, and `follow_progression()` in `src/learned_generator.py`.
+
 ---
 
 ## 7. Random seeds
@@ -447,7 +484,7 @@ python scripts/generate_learned.py config/learned/N59_generate_Aaeolian.json [--
 **Generation config keys:** `tables`, `output_dir`, `form`, `num_cycles`, `num_tracks`,
 `seed`, `tempo`, and optionally `max_context` (default 3), `min_context_count` (3),
 `min_position_count` (3), `transition_exponent` and `position_exponent` (0.5 each),
-`velocity` (100), `track_name_prefix` (the config name's first
+`chord_progression` and `source_chord` (section 6b), `velocity` (100), `track_name_prefix` (the config name's first
 `_` part, e.g. `N59`) and `write_mid` (true). The grid, key and `base_pitch` come from
 the tables file. Output files are named `<config stem>_s<seed>_<timestamp>`.
 

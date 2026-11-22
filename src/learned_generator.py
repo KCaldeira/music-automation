@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
+import chords
 from learner import TABLES_FORMAT
 
 RHYTHM_STREAM, MELODY_STREAM = 1, 2   # SeedSequence spawn-key tags
@@ -48,6 +49,10 @@ def load_generation_config(path):
     cfg.setdefault("velocity", 100)
     cfg.setdefault("track_name_prefix", Path(path).stem.split("_")[0])
     cfg.setdefault("write_mid", True)
+    # Optional post-processing: one chord per bar of the form. Notes that were tones
+    # of the tables' chord move to the nearest tone of that bar's chord.
+    cfg.setdefault("chord_progression", None)
+    cfg.setdefault("source_chord", None)   # default: the tables file's chord
 
     for k in ("num_cycles", "num_tracks", "max_context"):
         if isinstance(cfg[k], bool) or not isinstance(cfg[k], int) or cfg[k] < 1:
@@ -69,6 +74,19 @@ def load_generation_config(path):
     if "C" in halves[:-1]:
         fail("C (the ending half) may only be the last half of the form")
     cfg["form_bars"] = bars
+
+    prog = cfg["chord_progression"]
+    if prog is not None:
+        if isinstance(prog, str):
+            prog = prog.split()
+        if len(prog) != len(bars):
+            fail(f"chord_progression has {len(prog)} chords but the form has {len(bars)} bars")
+        try:
+            for name in prog + ([cfg["source_chord"]] if cfg["source_chord"] else []):
+                chords.parse_chord(name)
+        except ValueError as e:
+            fail(str(e))
+        cfg["chord_progression"] = prog
     return cfg
 
 
@@ -296,4 +314,27 @@ def generate(cfg, tables):
             notes += [(base + pos, L, step_to_midi(x, tables))
                       for (pos, L, _), x in zip(slots, pitches)]
         tracks.append({"bar": bar, "notes": notes, "slots_per_cycle": len(slots)})
-    return tracks, cycle_steps, stats
+
+    moves = Counter()
+    if cfg["chord_progression"]:
+        source_name = cfg["source_chord"] or tables["chord"]
+        for t in tracks:
+            t["notes"] = follow_progression(t["notes"], cfg["chord_progression"], source_name,
+                                            steps_per_bar, cycle_steps, moves)
+    return tracks, cycle_steps, stats, moves
+
+
+def follow_progression(notes, progression, source_name, steps_per_bar, cycle_steps, moves):
+    """Post-processing: in bar b of each cycle, notes that were tones of the source
+    chord move to the nearest tone of progression[b]; passing tones stay put.
+    moves counts (bar chord, old pitch class, new pitch class) for the report."""
+    source = chords.parse_chord(source_name)
+    targets = [chords.parse_chord(c) for c in progression]
+    out = []
+    for start, length, pitch in notes:
+        b = (start % cycle_steps) // steps_per_bar
+        new = chords.retarget_pitch(pitch, source, targets[b])
+        if new != pitch:
+            moves[(progression[b], pitch % 12, new % 12)] += 1
+        out.append((start, length, new))
+    return out

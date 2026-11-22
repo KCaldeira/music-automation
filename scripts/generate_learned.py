@@ -19,6 +19,8 @@ import dawproject_writer
 import learned_generator as lg
 import midi_writer
 
+PC = "C C# D D# E F F# G G# A A# B".split()
+
 
 def bar_picture(bar, steps_per_bar):
     """A one-line drawing of the rhythm: 'x' = note start, '-' = held, '.' = rest."""
@@ -41,7 +43,7 @@ def main():
     if args.seed is not None:
         cfg["seed"] = args.seed
     tables = lg.load_tables(cfg["tables"])
-    tracks, cycle_steps, stats = lg.generate(cfg, tables)
+    tracks, cycle_steps, stats, moves = lg.generate(cfg, tables)
 
     dpb = tables["divisions_per_beat"]
     steps_per_bar = dpb * tables["beats_per_bar"]
@@ -60,7 +62,8 @@ def main():
         daw_path, daw_tracks, cfg["tempo"], tables["beats_per_bar"], 4,
         title=out_stem,
         comment=(f"Learned workflow: {cfg['num_tracks']} tracks x {cfg['num_cycles']} cycles, "
-                 f"form {cfg['form']}, seed {cfg['seed']}, tables {cfg['tables']} ({key})"))
+                 f"form {cfg['form']}, seed {cfg['seed']}, tables {cfg['tables']} ({key})"
+                 + (f", chords {' '.join(cfg['chord_progression'])}" if cfg["chord_progression"] else "")))
 
     if cfg["write_mid"]:
         ticks = midi_writer.PPQN // dpb
@@ -76,6 +79,14 @@ def main():
     for name, t in zip(names, tracks):
         print(f"  {name:8s} {bar_picture(t['bar'], steps_per_bar)}   {t['slots_per_cycle']} notes/cycle")
     print("Choices " + ", ".join(f"{k} {v}" for k, v in sorted(stats.items())))
+    if cfg["chord_progression"]:
+        source = cfg["source_chord"] or tables["chord"]
+        print(f"Chords  {' '.join(cfg['chord_progression'])} (one per bar; {source} tones moved, "
+              f"passing tones kept)")
+        for chord in dict.fromkeys(cfg["chord_progression"]):
+            moved = [(f, t, n) for (c, f, t), n in moves.items() if c == chord]
+            print(f"  {chord:6s} " + (", ".join(f"{PC[f]}->{PC[t]} {n}" for f, t, n in sorted(moved))
+                                      or "no notes moved"))
     print(f"Wrote   {daw_path}" + (f"\n        {out_dir / out_stem}.mid" if cfg["write_mid"] else ""))
 
 
