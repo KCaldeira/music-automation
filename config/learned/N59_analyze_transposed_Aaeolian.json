@@ -1,0 +1,20 @@
+{
+  "description": "Learned-workflow tables for N59, from the N56 'Grandeur' melody, hand-transposed so it all sits on one chord (A aeolian over Am7, single line, 16th-quantized).",
+
+  "input_midi": "data/input/transposed.mid",
+  "output_path": "data/tables/N59_transposed_Aaeolian.json",
+
+  "root": "A",
+  "mode": "aeolian",
+  "chord": "Am7",
+  "base_pitch": 81,
+
+  "divisions_per_beat": 4,
+  "beats_per_bar": 4,
+  "bars_per_cycle": 4,
+  "input_quantization": "1/16",
+
+  "period": 16,
+  "snap_priority": [0, 2, 4, 5],
+  "max_context": 3
+}

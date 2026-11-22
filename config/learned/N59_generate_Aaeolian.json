@@ -1,0 +1,22 @@
+{
+  "description": "N59 learned melodies from the hand-transposed N56 melody (A aeolian over Am7), form AB AB AA BC, ending each 4-bar cycle on A5.",
+
+  "tables": "data/tables/N59_transposed_Aaeolian.json",
+  "output_dir": "data/output/N59_learned",
+
+  "form": "AB AB AA BC",
+  "num_cycles": 16,
+  "num_tracks": 8,
+  "seed": 59,
+  "tempo": 84,
+
+  "max_context": 3,
+  "min_context_count": 3,
+  "min_position_count": 3,
+  "transition_exponent": 0.5,
+  "position_exponent": 0.5,
+
+  "velocity": 100,
+  "track_name_prefix": "N59",
+  "write_mid": true
+}
