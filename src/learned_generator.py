@@ -57,7 +57,8 @@ def load_generation_config(path):
     cfg.setdefault("chord_progression", None)
     cfg.setdefault("source_chord", None)   # default: the tables file's chord
     # The final note (the C half): "tonic" = base_pitch; "last_chord_root" = the root
-    # of the progression's last chord, in the octave nearest base_pitch.
+    # of the progression's last chord, in the octave nearest base_pitch; "sampled" =
+    # drawn like any note with no context (overall pitch frequency x position table).
     cfg.setdefault("end_note", "tonic")
     # Optional last filter: delete every note that STARTS in a window of one bar of the
     # form, e.g. [{"bar": 2, "from": 10, "to": 16}] = grid steps (16ths) 10-16 of bar 2,
@@ -98,8 +99,8 @@ def load_generation_config(path):
         except ValueError as e:
             fail(str(e))
         cfg["chord_progression"] = prog
-    if cfg["end_note"] not in ("tonic", "last_chord_root"):
-        fail(f"end_note must be 'tonic' or 'last_chord_root' (got {cfg['end_note']!r})")
+    if cfg["end_note"] not in ("tonic", "last_chord_root", "sampled"):
+        fail(f"end_note must be 'tonic', 'last_chord_root' or 'sampled' (got {cfg['end_note']!r})")
     if cfg["end_note"] == "last_chord_root" and not cfg["chord_progression"]:
         fail("end_note 'last_chord_root' needs a chord_progression")
     if not isinstance(cfg["drop_starts"], list):
@@ -192,9 +193,12 @@ def load_tables(path):
 
 def end_step(cfg, tables):
     """Scale step of the final note: 0 (the tonic), or the last chord's root in the
-    octave nearest base_pitch (the lower one if two are equally near)."""
+    octave nearest base_pitch (the lower one if two are equally near), or None when
+    it is sampled per cycle (end_note "sampled")."""
     if cfg["end_note"] == "tonic":
         return 0
+    if cfg["end_note"] == "sampled":
+        return None
     name = cfg["chord_progression"][-1]
     root_pc = next(pc for pc, role in chords.parse_chord(name).items() if role == "root")
     d = len(tables["scale"])
@@ -303,7 +307,8 @@ def cycle_slots(bar_notes, form_bars, tables):
 # --------------------------------------------------------------------------
 
 def fill_melody(slots, tables, cfg, rng, stats, last=0):
-    """Pitches (scale steps) for every slot, chosen from the last slot backwards."""
+    """Pitches (scale steps) for every slot, chosen from the last slot backwards.
+    last: the fixed final note, or None to draw it like any note without context."""
     d = len(tables["scale"])
     period = tables["period"]
     T = tables["transitions"]
@@ -313,7 +318,7 @@ def fill_melody(slots, tables, cfg, rng, stats, last=0):
 
     for j in range(len(slots) - 1, -1, -1):
         pos, _, is_tonic = slots[j]
-        if is_tonic:
+        if is_tonic and last is not None:
             steps[j] = last
             placed.insert(0, last)
             continue
@@ -349,9 +354,11 @@ def fill_melody(slots, tables, cfg, rng, stats, last=0):
             stats[f"order_{k}_without_position_table"] += 1
             choice = _sample(rng, flat(row))
         if choice is None:
-            # Q2 (open): no well-attested context. Any k=1 evidence, else the overall
+            # Q2: no well-attested context (or the sampled final note). Any k=1 evidence, else the overall
             # pitch frequency times the position table.
             row = T.get(1, {}).get(tuple(placed[:1]), {}) if placed else {}
+            if is_tonic:
+                row = {}
             if sum(row.values()) > 0:
                 stats["fallback_order_1_below_threshold"] += 1
                 choice = _sample(rng, flat(row))
@@ -362,7 +369,7 @@ def fill_melody(slots, tables, cfg, rng, stats, last=0):
                 weights = {p: w * pos_weight(p) for p, w in flat(overall).items()}
                 if sum(weights.values()) == 0:
                     weights = flat(overall)
-                stats["fallback_overall_frequency"] += 1
+                stats["end_note_sampled" if is_tonic else "fallback_overall_frequency"] += 1
                 choice = _sample(rng, weights)
 
         steps[j] = choice

@@ -421,6 +421,17 @@ the octave nearest `base_pitch`. For `… C6` with `base_pitch` A5, that is **C6
 instead of step 0, so the notes before it are drawn from the transitions that lead into
 C, and the approach to the cadence fits. The root must be in the tables' scale.
 
+**A sampled ending** (`end_note: "sampled"`; Ken, 2026-11-22). The final note is not
+fixed. It is drawn first, before the rest of the cycle, like a note with no context:
+from the overall pitch frequency of the input (every note's actual pitch, octave
+included) times the position table at the C slot (beat 3), with the usual exponents.
+It is drawn with the cycle's melody seed, so cycle n ends on the same note in every
+track. The backward fill then starts from that note. The chord step treats it like any
+other note. Over C6 nothing moves, because every Am7 tone is also a C6 tone, so a cycle
+can end on a passing tone such as B or D. In the first run
+(`…_bar2gap_freeend.json`, seed 60, 64 cycles), the endings were A5 ×27, E5 ×10, A4 ×6,
+C6 ×6, C5 ×4, A6 ×3, E6 ×3, D5 ×3 and D6 ×2.
+
 Chords are written as a root (C, F#, Bb, …) plus one of `""` (major), `m`, `6`,
 `m6`, `7`, `m7`, `maj7`, `m7b5`, `dim`, `dim7`. Optional config keys:
 `chord_progression` (a list, or a space-separated string, with as many chords as the
@@ -701,7 +712,7 @@ Q6: Does every cycle end on the tonic at `base_pitch`, or should the octave (or 
     ending note itself) be a parameter?
 A: A parameter: `end_note` is `"tonic"` (step 0 at `base_pitch`, the default) or
    `"last_chord_root"` (the last chord's root, in the octave nearest `base_pitch`; C6 in
-   N59). See section 6b.
+   N59), or `"sampled"` (drawn from the tables each cycle). See section 6b.
 
 Q7: Is a rhythm pattern with very few notes, or none (e.g. an empty B), acceptable?
     Or should the walk be redrawn until each half has at least one note?

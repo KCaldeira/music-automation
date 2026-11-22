@@ -1,0 +1,25 @@
+{
+  "description": "N59 learned melodies from the hand-transposed N56 melody (A aeolian over Am7), form AB AB AA BC, moved onto the chords Am7 Em7 Dm7 C6 (one per bar), the final note of each 4-bar cycle (beat 3 of bar 4) drawn from the overall pitch frequency times the position table, not fixed. No notes are dropped (compare ..._bar2gap_freeend.json).",
+
+  "tables": "data/tables/N59_transposed_Aaeolian.json",
+  "output_dir": "data/output/N59_learned",
+
+  "form": "AB AB AA BC",
+  "chord_progression": ["Am7", "Em7", "Dm7", "C6"],
+  "end_note": "sampled",
+  "num_cycles": 64,
+  "num_tracks": 16,
+  "seed": 60,
+  "tempo": 112,
+
+  "max_context": 3,
+  "min_context_count": 3,
+  "min_position_count": 3,
+  "transition_exponent": 0.5,
+  "position_exponent": 0.5,
+
+  "velocity": "tables",
+  "min_velocity_count": 3,
+  "track_name_prefix": "N59",
+  "write_mid": true
+}

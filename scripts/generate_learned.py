@@ -9,6 +9,7 @@ into output_dir, named <config stem>_s<seed>_<timestamp>.
 """
 
 import argparse
+from collections import Counter
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -72,10 +73,14 @@ def main():
 
     # Report
     print(f"Tables  {cfg['tables']}  ({key}, chord {tables['chord']}, base_pitch {tables['base_pitch']})")
+    last_notes = {}   # cycle -> final MIDI pitch (the same in every track)
+    for s, _, p, _ in tracks[0]["notes"]:
+        last_notes[s // cycle_steps] = p
+    ends = Counter(f"{PC[p % 12]}{p // 12 - 1}" for p in last_notes.values())
+    ending = (f"ending on {', '.join(f'{k} x{v}' for k, v in ends.most_common())} (sampled)"
+              if cfg["end_note"] == "sampled" else f"ending on {next(iter(ends))}")
     print(f"Form    {cfg['form']}  ({cycle_steps // steps_per_bar} bars), {cfg['num_cycles']} cycles, "
-          f"{cfg['tempo']} bpm, seed {cfg['seed']}, "
-          f"ending on {PC[lg.step_to_midi(lg.end_step(cfg, tables), tables) % 12]}"
-          f"{lg.step_to_midi(lg.end_step(cfg, tables), tables) // 12 - 1}")
+          f"{cfg['tempo']} bpm, seed {cfg['seed']}, {ending}")
     print("Rhythms (x = note start, - = held, . = rest; A | B):")
     for name, t in zip(names, tracks):
         print(f"  {name:8s} {bar_picture(t['bar'], steps_per_bar)}   {t['slots_per_cycle']} notes/cycle")
