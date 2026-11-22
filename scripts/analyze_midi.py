@@ -41,6 +41,11 @@ def print_report(doc, report):
     print("starts  " + " ".join(str(n) for n in doc["onsets"]["n_start"]))
     thin = [s for s, cnt in doc["position_pitch"].items() if sum(cnt.values()) < REPORT_THRESHOLD]
     print(f"Positions with < {REPORT_THRESHOLD} notes (pitch table would be ignored): {thin or 'none'}")
+    cells = [sum(c.values()) for c in doc["velocity_by_length"].values()]
+    ok = [n for n in cells if n >= REPORT_THRESHOLD]
+    print(f"Velocity {report['velocity_range'][0]}-{report['velocity_range'][1]}; "
+          f"(position, length) cells: {len(cells)}, {len(ok)} with >= {REPORT_THRESHOLD} "
+          f"(covering {sum(ok) / sum(cells):.0%} of notes)")
     for k, table in sorted(doc["transitions"].items()):
         totals = [sum(c.values()) for c in table.values()]
         ok = [t for t in totals if t >= REPORT_THRESHOLD]

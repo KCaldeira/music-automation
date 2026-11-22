@@ -7,10 +7,10 @@
   "form": "AB AB AA BC",
   "chord_progression": ["Am7", "Em7", "Dm7", "C6"],
   "end_note": "last_chord_root",
-  "num_cycles": 48,
+  "num_cycles": 64,
   "num_tracks": 16,
   "seed": 59,
-  "tempo": 84,
+  "tempo": 112,
 
   "max_context": 3,
   "min_context_count": 3,
@@ -18,7 +18,8 @@
   "transition_exponent": 0.5,
   "position_exponent": 0.5,
 
-  "velocity": 100,
+  "velocity": "tables",
+  "min_velocity_count": 3,
   "track_name_prefix": "N59",
   "write_mid": true
 }

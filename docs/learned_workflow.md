@@ -427,6 +427,41 @@ Chords are written as a root (C, F#, Bb, …) plus one of `""` (major), `m`, `6`
 form has bars) and `source_chord` (default: the tables' `chord`). The code is in
 `src/chords.py`, and `follow_progression()` in `src/learned_generator.py`.
 
+### 6c. Velocity (Ken, 2026-11-22)
+
+**Analysis** records each note's velocity in two more weight tables in the tables
+file:
+
+- `velocity`: for each start position (the 16th in the bar), the count of each
+  velocity, e.g. `"0": {"34": 2, …, "75": 11, …}`;
+- `velocity_by_length`: the same for each **start position and length**, keyed
+  `"position length"`, e.g. `"0 2"` for 8th notes on the downbeat.
+
+**Generation** gives each note a velocity drawn from those tables, using the usual
+threshold `min_velocity_count` (default 3):
+
+1. If the note's (position, length) cell has total weight ≥ 3, draw from it.
+2. Otherwise, draw from its position's row, if that has ≥ 3.
+3. Otherwise, draw from all positions pooled.
+
+The position is the note's place in the output bar, and the length is its output
+length (after the half-bar cut; the final C note is a quarter on beat 3).
+
+**Velocities change every cycle** (Ken, 2026-11-22). They are keyed by track, like the
+rhythm, and also by cycle, so they differ between tracks and every 4-bar cycle gets
+fresh draws. This sounds less mechanical than repeating one pattern. Ken first asked for
+rhythm-style keying (one pattern per track, repeated), then changed to this. They use
+their own stream, `SeedSequence(seed, spawn_key=(3, m, n))`, separate from the rhythm
+and melody streams. Switching velocities
+on therefore leaves every pitch and rhythm unchanged.
+`"velocity": "tables"` is the default; a number (1–127) gives every note that fixed
+velocity, as before.
+
+On `transposed.mid`, velocities run from 5 to 122 (median 79). 33 of the 56
+(position, length) cells reach 3 notes, and they hold 98% of the notes. In the
+16-track × 64-cycle N59 run, 99% of notes drew from a (position, length) cell and the
+rest from their position.
+
 ---
 
 ## 7. Random seeds
@@ -437,6 +472,7 @@ All streams come from the one `seed`, using numpy `SeedSequence` spawn keys:
 |---|---|---|---|
 | rhythm | `SeedSequence(seed, spawn_key=(1, m))` | track m | every cycle of that track |
 | melody | `SeedSequence(seed, spawn_key=(2, n))` | cycle n | cycle n of every track |
+| velocity | `SeedSequence(seed, spawn_key=(3, m, n))` | track m and cycle n | nothing: every track and cycle differs |
 
 So:
 
@@ -492,7 +528,8 @@ python scripts/generate_learned.py config/learned/N59_generate_Aaeolian.json [--
 **Generation config keys:** `tables`, `output_dir`, `form`, `num_cycles`, `num_tracks`,
 `seed`, `tempo`, and optionally `max_context` (default 3), `min_context_count` (3),
 `min_position_count` (3), `transition_exponent` and `position_exponent` (0.5 each),
-`chord_progression`, `source_chord` and `end_note` (section 6b), `velocity` (100), `track_name_prefix` (the config name's first
+`chord_progression`, `source_chord` and `end_note` (section 6b), `velocity` (`"tables"`, or a fixed
+1–127) and `min_velocity_count` (3) (section 6c), `track_name_prefix` (the config name's first
 `_` part, e.g. `N59`) and `write_mid` (true). The grid, key and `base_pitch` come from
 the tables file. Output files are named `<config stem>_s<seed>_<timestamp>`.
 

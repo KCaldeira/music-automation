@@ -52,9 +52,8 @@ def main():
     out_dir = Path(cfg["output_dir"])
     names = [f"{cfg['track_name_prefix']} t{m + 1}" for m in range(len(tracks))]
     total_beats = cfg["num_cycles"] * cycle_steps / dpb
-    vel = cfg["velocity"]
 
-    daw_tracks = [(name, total_beats, [(s / dpb, L / dpb, p, vel) for s, L, p in t["notes"]])
+    daw_tracks = [(name, total_beats, [(s / dpb, L / dpb, p, v) for s, L, p, v in t["notes"]])
                   for name, t in zip(names, tracks)]
     daw_path = out_dir / f"{out_stem}.dawproject"
     key = f"{tables['root']} {tables['mode'] or tables['scale']}"
@@ -67,7 +66,7 @@ def main():
 
     if cfg["write_mid"]:
         ticks = midi_writer.PPQN // dpb
-        midi_tracks = [[midi_writer.NoteEvent(s * ticks, L * ticks, p, vel) for s, L, p in t["notes"]]
+        midi_tracks = [[midi_writer.NoteEvent(s * ticks, L * ticks, p, v) for s, L, p, v in t["notes"]]
                        for t in tracks]
         midi_writer.write_midi(midi_tracks, str(out_dir / f"{out_stem}.mid"), names)
 

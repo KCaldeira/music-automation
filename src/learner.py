@@ -117,7 +117,7 @@ def load_analysis_config(path):
 # --------------------------------------------------------------------------
 
 def read_midi_notes(path):
-    """All notes in the file as (start_tick, end_tick, pitch), plus file info."""
+    """All notes in the file as (start_tick, end_tick, pitch, velocity), plus file info."""
     mid = mido.MidiFile(path)
     notes, unmatched_offs, hanging = [], 0, 0
     info = {"ticks_per_beat": mid.ticks_per_beat, "tempo_bpm": None, "time_signature": None}
@@ -130,10 +130,11 @@ def read_midi_notes(path):
             elif msg.type == "time_signature" and info["time_signature"] is None:
                 info["time_signature"] = f"{msg.numerator}/{msg.denominator}"
             elif msg.type == "note_on" and msg.velocity > 0:
-                sounding[msg.note].append(tick)
+                sounding[msg.note].append((tick, msg.velocity))
             elif msg.type in ("note_off", "note_on"):
                 if sounding[msg.note]:
-                    notes.append((sounding[msg.note].pop(0), tick, msg.note))
+                    start, velocity = sounding[msg.note].pop(0)
+                    notes.append((start, tick, msg.note, velocity))
                 else:
                     unmatched_offs += 1
         hanging += sum(len(v) for v in sounding.values())
@@ -143,16 +144,16 @@ def read_midi_notes(path):
 
 
 def clean_notes(raw_notes, ticks_per_step, quant_steps):
-    """Section 2 cleaning. Returns notes as (start, end, pitch) in grid steps, and a report."""
+    """Section 2 cleaning. Returns notes as (start, end, pitch, velocity) in grid steps, and a report."""
     q_ticks = ticks_per_step * quant_steps
 
     def snap(tick):  # nearest quantization line, halves round up
         return ((2 * tick + q_ticks) // (2 * q_ticks)) * quant_steps
 
     report = {"raw_notes": len(raw_notes)}
-    snapped = [(snap(s), snap(e), p) for s, e, p in raw_notes]
+    snapped = [(snap(s), snap(e), p, v) for s, e, p, v in raw_notes]
     report["moved_by_quantizing"] = sum(
-        1 for (s, e, _) in raw_notes if s % q_ticks or e % q_ticks)
+        1 for (s, e, _, _) in raw_notes if s % q_ticks or e % q_ticks)
 
     # 1-2. quantize, then ignore zero-length notes
     notes = [n for n in snapped if n[1] > n[0]]
@@ -169,9 +170,9 @@ def clean_notes(raw_notes, ticks_per_step, quant_steps):
     notes.sort()
     cut = 0
     for i in range(len(notes) - 1):
-        s, e, p = notes[i]
+        s, e, p, v = notes[i]
         if e > notes[i + 1][0]:
-            notes[i] = (s, notes[i + 1][0], p)
+            notes[i] = (s, notes[i + 1][0], p, v)
             cut += 1
     report["cut_at_next_start"] = cut
     report["notes_after_cleaning"] = len(notes)
@@ -203,18 +204,18 @@ def pitch_to_step(pitch, base_pitch, scale, snap_priority):
 # --------------------------------------------------------------------------
 
 def build_tables(notes, steps, cfg):
-    """notes: cleaned (start, end, pitch) in grid steps; steps: scale step of each note."""
+    """notes: cleaned (start, end, pitch, velocity) in grid steps; steps: scale step of each note."""
     period = cfg["period"]
     d = len(cfg["scale_semitones"])
     steps_per_bar = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
 
     # T1: walk the timeline to the end of the last bar that holds a note.
-    last_end = max(e for _, e, _ in notes)
+    last_end = max(e for _, e, _, _ in notes)
     timeline = -(-last_end // steps_per_bar) * steps_per_bar
     held = set()
-    for s, e, _ in notes:
+    for s, e, _, _ in notes:
         held.update(range(s + 1, e))
-    starts = {s for s, _, _ in notes}
+    starts = {s for s, *_ in notes}
     n_free, n_start = [0] * period, [0] * period
     for t in range(timeline):
         if t not in held:
@@ -225,9 +226,14 @@ def build_tables(notes, steps, cfg):
     # T2 and T3, per position
     lengths = {i: Counter() for i in range(period)}
     position_pitch = {i: Counter({c: 0 for c in range(d)}) for i in range(period)}
-    for (s, e, _), x in zip(notes, steps):
+    # Velocity, by start position and by (start position, length)
+    velocity = {i: Counter() for i in range(period)}
+    velocity_by_length = defaultdict(Counter)
+    for (s, e, _, v), x in zip(notes, steps):
         lengths[s % period][e - s] += 1
         position_pitch[s % period][x % d] += 1
+        velocity[s % period][v] += 1
+        velocity_by_length[(s % period, e - s)][v] += 1
 
     # T4: backward transitions, context = the k notes that follow
     transitions = {}
@@ -242,6 +248,8 @@ def build_tables(notes, steps, cfg):
         "lengths": lengths,
         "position_pitch": position_pitch,
         "transitions": transitions,
+        "velocity": velocity,
+        "velocity_by_length": velocity_by_length,
         "timeline_steps": timeline,
     }
 
@@ -259,10 +267,11 @@ def analyze(cfg):
 
     scale, d = cfg["scale_semitones"], len(cfg["scale_semitones"])
     converted = [pitch_to_step(p, cfg["base_pitch"], scale, cfg["snap_priority"])
-                 for _, _, p in notes]
+                 for _, _, p, _ in notes]
     steps = [x for x, _ in converted]
     report["snapped_to_key"] = sum(1 for _, was in converted if was)
-    report["midi_range"] = [min(p for *_, p in notes), max(p for *_, p in notes)]
+    report["midi_range"] = [min(n[2] for n in notes), max(n[2] for n in notes)]
+    report["velocity_range"] = [min(n[3] for n in notes), max(n[3] for n in notes)]
     report["step_range"] = [min(steps), max(steps)]
     report["degree_class_totals"] = {c: sum(1 for x in steps if x % d == c) for c in range(d)}
     report["source"] = info
@@ -293,7 +302,8 @@ def analyze(cfg):
             "raw_notes", "moved_by_quantizing", "dropped_zero_length",
             "dropped_same_start", "cut_at_next_start", "notes_after_cleaning",
             "snapped_to_key")},
-        **{k: tables[k] for k in ("onsets", "lengths", "position_pitch", "transitions")},
+        **{k: tables[k] for k in ("onsets", "lengths", "position_pitch", "transitions",
+                                  "velocity", "velocity_by_length")},
     }
     return doc, report
 
@@ -321,8 +331,8 @@ def _rows(rows, indent):
 
 def format_tables(doc):
     out = ["{"]
-    header = [k for k in doc if k not in ("cleaning", "onsets", "lengths",
-                                          "position_pitch", "transitions")]
+    header = [k for k in doc if k not in ("cleaning", "onsets", "lengths", "position_pitch",
+                                          "transitions", "velocity", "velocity_by_length")]
     out.append(",\n".join(f'  "{k}": {_inline(doc[k])}' for k in header) + ",")
     out.append("")
     out.append(f'  "cleaning": {_inline(doc["cleaning"])},')
@@ -346,6 +356,17 @@ def format_tables(doc):
         rows = [(" ".join(map(str, ctx)), _weights(c)) for ctx, c in sorted(table.items())]
         blocks.append(f'    "{k}": {{\n' + _rows(rows, 6) + "\n    }")
     out.append(",\n".join(blocks))
+    out.append("  },")
+    out.append("")
+
+    # Velocity weights: per start position, then per "position length".
+    out.append('  "velocity": {')
+    out.append(_rows([(str(s), _weights(c)) for s, c in sorted(doc["velocity"].items())], 4))
+    out.append("  },")
+    out.append("")
+    out.append('  "velocity_by_length": {')
+    out.append(_rows([(f"{s} {L}", _weights(c))
+                      for (s, L), c in sorted(doc["velocity_by_length"].items())], 4))
     out.append("  }")
     out.append("}")
     text = "\n".join(out) + "\n"

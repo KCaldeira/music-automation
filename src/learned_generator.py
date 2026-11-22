@@ -19,7 +19,7 @@ import numpy as np
 import chords
 from learner import TABLES_FORMAT
 
-RHYTHM_STREAM, MELODY_STREAM = 1, 2   # SeedSequence spawn-key tags
+RHYTHM_STREAM, MELODY_STREAM, VELOCITY_STREAM = 1, 2, 3   # SeedSequence spawn-key tags
 
 
 # --------------------------------------------------------------------------
@@ -46,7 +46,10 @@ def load_generation_config(path):
     # both tables share (e.g. for the root) is not counted twice. 1 = plain product.
     cfg.setdefault("transition_exponent", 0.5)
     cfg.setdefault("position_exponent", 0.5)
-    cfg.setdefault("velocity", 100)
+    # "tables": draw each velocity from the tables (by start position and length if that
+    # cell has >= min_velocity_count notes, else by start position); or a fixed 1..127.
+    cfg.setdefault("velocity", "tables")
+    cfg.setdefault("min_velocity_count", 3)
     cfg.setdefault("track_name_prefix", Path(path).stem.split("_")[0])
     cfg.setdefault("write_mid", True)
     # Optional post-processing: one chord per bar of the form. Notes that were tones
@@ -67,8 +70,9 @@ def load_generation_config(path):
               "transition_exponent", "position_exponent"):
         if not isinstance(cfg[k], (int, float)) or cfg[k] < 0:
             fail(f"{k} must be a non-negative number (got {cfg[k]!r})")
-    if not 1 <= cfg["velocity"] <= 127:
-        fail("velocity must be in 1..127")
+    v = cfg["velocity"]
+    if v != "tables" and (isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 127):
+        fail(f"velocity must be 'tables' or an int in 1..127 (got {v!r})")
 
     bars = cfg["form"].split()
     if not bars or any(len(b) != 2 or set(b) - set("ABC") for b in bars):
@@ -143,6 +147,17 @@ def load_tables(path):
                 raise ValueError(f"{path}: transitions[{k}] context {ctx!r} does not have {k} steps")
             transitions[k][key] = _weight_row(row, f"{path} transitions[{k}][{ctx!r}]")
 
+    velocity = velocity_by_length = None
+    if "velocity" in doc:
+        velocity = per_position("velocity")
+        velocity_by_length = {}
+        for key, row in doc.get("velocity_by_length", {}).items():
+            s, L = (int(x) for x in key.split())
+            velocity_by_length[(s, L)] = _weight_row(row, f"{path} velocity_by_length[{key!r}]")
+        rows = velocity + list(velocity_by_length.values())
+        if any(not 1 <= v <= 127 for row in rows for v in row):
+            raise ValueError(f"{path}: velocities must be 1..127")
+
     return {
         "source": str(path),
         "period": period,
@@ -157,6 +172,8 @@ def load_tables(path):
         "lengths": lengths,
         "position_pitch": position_pitch,
         "transitions": transitions,
+        "velocity": velocity,
+        "velocity_by_length": velocity_by_length,
     }
 
 
@@ -191,6 +208,32 @@ def rhythm_rng(seed, track):
 
 def melody_rng(seed, cycle):
     return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(MELODY_STREAM, cycle)))
+
+
+def velocity_rng(seed, track, cycle):
+    """Keyed by track (like the rhythm) and by cycle, so velocities differ between
+    tracks and change every 4-bar cycle. Separate from the rhythm and melody streams."""
+    return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(VELOCITY_STREAM, track, cycle)))
+
+
+def note_velocity(pos, length, tables, cfg, rng, stats):
+    """Velocity for a note starting at cycle position pos (section 6c)."""
+    if cfg["velocity"] != "tables":
+        return cfg["velocity"]
+    s = pos % tables["period"]
+    cell = tables["velocity_by_length"].get((s, length), {})
+    if sum(cell.values()) >= cfg["min_velocity_count"]:
+        stats["velocity_by_position_and_length"] += 1
+        return _sample(rng, cell)
+    row = tables["velocity"][s]
+    if sum(row.values()) >= cfg["min_velocity_count"]:
+        stats["velocity_by_position"] += 1
+        return _sample(rng, row)
+    overall = Counter()
+    for r in tables["velocity"]:
+        overall.update(r)
+    stats["velocity_overall"] += 1
+    return _sample(rng, overall)
 
 
 def _sample(rng, weights):
@@ -319,11 +362,14 @@ def fill_melody(slots, tables, cfg, rng, stats, last=0):
 # --------------------------------------------------------------------------
 
 def generate(cfg, tables):
-    """Returns (tracks, cycle_steps, stats); each track is a list of
-    (start_step, length_steps, midi_pitch) over all cycles, plus its rhythm."""
+    """Returns (tracks, cycle_steps, stats, moves); each track holds its rhythm and
+    its notes, (start_step, length_steps, midi_pitch, velocity), over all cycles."""
     steps_per_bar = tables["divisions_per_beat"] * tables["beats_per_bar"]
     if steps_per_bar % 2:
         raise ValueError(f"a bar of {steps_per_bar} grid steps cannot be split into halves")
+    if cfg["velocity"] == "tables" and tables["velocity"] is None:
+        raise ValueError(f"{tables['source']} has no velocity tables (re-run the analysis), "
+                         f"or set a fixed 'velocity' in the config")
     stats = Counter()
     last = end_step(cfg, tables)
     tracks = []
@@ -334,8 +380,10 @@ def generate(cfg, tables):
         for n in range(cfg["num_cycles"]):
             pitches = fill_melody(slots, tables, cfg, melody_rng(cfg["seed"], n), stats, last)
             base = n * cycle_steps
-            notes += [(base + pos, L, step_to_midi(x, tables))
-                      for (pos, L, _), x in zip(slots, pitches)]
+            vrng = velocity_rng(cfg["seed"], m, n)
+            velocities = [note_velocity(pos, L, tables, cfg, vrng, stats) for pos, L, _ in slots]
+            notes += [(base + pos, L, step_to_midi(x, tables), v)
+                      for (pos, L, _), x, v in zip(slots, pitches, velocities)]
         tracks.append({"bar": bar, "notes": notes, "slots_per_cycle": len(slots)})
 
     moves = Counter()
@@ -354,10 +402,10 @@ def follow_progression(notes, progression, source_name, steps_per_bar, cycle_ste
     source = chords.parse_chord(source_name)
     targets = [chords.parse_chord(c) for c in progression]
     out = []
-    for start, length, pitch in notes:
+    for start, length, pitch, velocity in notes:
         b = (start % cycle_steps) // steps_per_bar
         new = chords.retarget_pitch(pitch, source, targets[b])
         if new != pitch:
             moves[(progression[b], pitch % 12, new % 12)] += 1
-        out.append((start, length, new))
+        out.append((start, length, new, velocity))
     return out
