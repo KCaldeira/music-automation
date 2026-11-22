@@ -7,8 +7,8 @@
   "form": "AB AB AA BC",
   "chord_progression": ["Am7", "Em7", "Dm7", "C6"],
   "end_note": "last_chord_root",
-  "num_cycles": 16,
-  "num_tracks": 8,
+  "num_cycles": 48,
+  "num_tracks": 16,
   "seed": 59,
   "tempo": 84,
 
