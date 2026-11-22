@@ -74,7 +74,9 @@ def main():
     # Report
     print(f"Tables  {cfg['tables']}  ({key}, chord {tables['chord']}, base_pitch {tables['base_pitch']})")
     print(f"Form    {cfg['form']}  ({cycle_steps // steps_per_bar} bars), {cfg['num_cycles']} cycles, "
-          f"{cfg['tempo']} bpm, seed {cfg['seed']}")
+          f"{cfg['tempo']} bpm, seed {cfg['seed']}, "
+          f"ending on {PC[lg.step_to_midi(lg.end_step(cfg, tables), tables) % 12]}"
+          f"{lg.step_to_midi(lg.end_step(cfg, tables), tables) // 12 - 1}")
     print("Rhythms (x = note start, - = held, . = rest; A | B):")
     for name, t in zip(names, tracks):
         print(f"  {name:8s} {bar_picture(t['bar'], steps_per_bar)}   {t['slots_per_cycle']} notes/cycle")

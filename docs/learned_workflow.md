@@ -411,7 +411,15 @@ With source Am7 (A C E G), these are the only changes:
 | 3 | Dm7 (D F A C) | E → F, G → A (tie F/A, fifth wins) |
 | 4 | C6 (C E G A) | none: C6 has the same notes as Am7 |
 
-So each cycle still ends on A5.
+With the default `end_note: "tonic"`, each cycle still ends on A5.
+
+**Ending on the last chord's root** (`end_note: "last_chord_root"`; Ken, 2026-11-22).
+The final note (the C half) becomes the **root of the progression's last chord**, in
+the octave nearest `base_pitch`. For `… C6` with `base_pitch` A5, that is **C6** (MIDI
+84): three semitones up, against nine down to C5. This changes where the backward fill
+**starts**, not just the last note. The fill begins from that note (scale step 2 here)
+instead of step 0, so the notes before it are drawn from the transitions that lead into
+C, and the approach to the cadence fits. The root must be in the tables' scale.
 
 Chords are written as a root (C, F#, Bb, …) plus one of `""` (major), `m`, `6`,
 `m6`, `7`, `m7`, `maj7`, `m7b5`, `dim`, `dim7`. Optional config keys:
@@ -484,7 +492,7 @@ python scripts/generate_learned.py config/learned/N59_generate_Aaeolian.json [--
 **Generation config keys:** `tables`, `output_dir`, `form`, `num_cycles`, `num_tracks`,
 `seed`, `tempo`, and optionally `max_context` (default 3), `min_context_count` (3),
 `min_position_count` (3), `transition_exponent` and `position_exponent` (0.5 each),
-`chord_progression` and `source_chord` (section 6b), `velocity` (100), `track_name_prefix` (the config name's first
+`chord_progression`, `source_chord` and `end_note` (section 6b), `velocity` (100), `track_name_prefix` (the config name's first
 `_` part, e.g. `N59`) and `write_mid` (true). The grid, key and `base_pitch` come from
 the tables file. Output files are named `<config stem>_s<seed>_<timestamp>`.
 

@@ -53,6 +53,9 @@ def load_generation_config(path):
     # of the tables' chord move to the nearest tone of that bar's chord.
     cfg.setdefault("chord_progression", None)
     cfg.setdefault("source_chord", None)   # default: the tables file's chord
+    # The final note (the C half): "tonic" = base_pitch; "last_chord_root" = the root
+    # of the progression's last chord, in the octave nearest base_pitch.
+    cfg.setdefault("end_note", "tonic")
 
     for k in ("num_cycles", "num_tracks", "max_context"):
         if isinstance(cfg[k], bool) or not isinstance(cfg[k], int) or cfg[k] < 1:
@@ -87,6 +90,10 @@ def load_generation_config(path):
         except ValueError as e:
             fail(str(e))
         cfg["chord_progression"] = prog
+    if cfg["end_note"] not in ("tonic", "last_chord_root"):
+        fail(f"end_note must be 'tonic' or 'last_chord_root' (got {cfg['end_note']!r})")
+    if cfg["end_note"] == "last_chord_root" and not cfg["chord_progression"]:
+        fail("end_note 'last_chord_root' needs a chord_progression")
     return cfg
 
 
@@ -151,6 +158,21 @@ def load_tables(path):
         "position_pitch": position_pitch,
         "transitions": transitions,
     }
+
+
+def end_step(cfg, tables):
+    """Scale step of the final note: 0 (the tonic), or the last chord's root in the
+    octave nearest base_pitch (the lower one if two are equally near)."""
+    if cfg["end_note"] == "tonic":
+        return 0
+    name = cfg["chord_progression"][-1]
+    root_pc = next(pc for pc, role in chords.parse_chord(name).items() if role == "root")
+    d = len(tables["scale"])
+    options = [x for x in range(-d, d + 1) if step_to_midi(x, tables) % 12 == root_pc]
+    if not options:
+        raise ValueError(f"the root of {name} is not in the tables' scale, so the melody "
+                         f"cannot end on it")
+    return min(options, key=lambda x: (abs(step_to_midi(x, tables) - tables["base_pitch"]), x))
 
 
 def step_to_midi(step, tables):
@@ -224,7 +246,7 @@ def cycle_slots(bar_notes, form_bars, tables):
 # Backward melody fill (section 6)
 # --------------------------------------------------------------------------
 
-def fill_melody(slots, tables, cfg, rng, stats):
+def fill_melody(slots, tables, cfg, rng, stats, last=0):
     """Pitches (scale steps) for every slot, chosen from the last slot backwards."""
     d = len(tables["scale"])
     period = tables["period"]
@@ -236,8 +258,8 @@ def fill_melody(slots, tables, cfg, rng, stats):
     for j in range(len(slots) - 1, -1, -1):
         pos, _, is_tonic = slots[j]
         if is_tonic:
-            steps[j] = 0
-            placed.insert(0, 0)
+            steps[j] = last
+            placed.insert(0, last)
             continue
 
         pos_row = tables["position_pitch"][pos % period]
@@ -303,13 +325,14 @@ def generate(cfg, tables):
     if steps_per_bar % 2:
         raise ValueError(f"a bar of {steps_per_bar} grid steps cannot be split into halves")
     stats = Counter()
+    last = end_step(cfg, tables)
     tracks = []
     for m in range(cfg["num_tracks"]):
         bar = rhythm_walk(tables, rhythm_rng(cfg["seed"], m), stats)
         slots, cycle_steps = cycle_slots(bar, cfg["form_bars"], tables)
         notes = []
         for n in range(cfg["num_cycles"]):
-            pitches = fill_melody(slots, tables, cfg, melody_rng(cfg["seed"], n), stats)
+            pitches = fill_melody(slots, tables, cfg, melody_rng(cfg["seed"], n), stats, last)
             base = n * cycle_steps
             notes += [(base + pos, L, step_to_midi(x, tables))
                       for (pos, L, _), x in zip(slots, pitches)]
