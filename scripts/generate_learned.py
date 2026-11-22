@@ -79,6 +79,7 @@ def main():
     print("Rhythms (x = note start, - = held, . = rest; A | B):")
     for name, t in zip(names, tracks):
         print(f"  {name:8s} {bar_picture(t['bar'], steps_per_bar)}   {t['slots_per_cycle']} notes/cycle")
+    dropped = stats.pop("dropped by drop_starts", 0)
     print("Choices " + ", ".join(f"{k} {v}" for k, v in sorted(stats.items())))
     if cfg["chord_progression"]:
         source = cfg["source_chord"] or tables["chord"]
@@ -88,6 +89,10 @@ def main():
             moved = [(f, t, n) for (c, f, t), n in moves.items() if c == chord]
             print(f"  {chord:6s} " + (", ".join(f"{PC[f]}->{PC[t]} {n}" for f, t, n in sorted(moved))
                                       or "no notes moved"))
+    for w in cfg["drop_starts"]:
+        print(f"Dropped notes starting on steps {w['from']}-{w['to']} of bar {w['bar']}", end="; ")
+    if cfg["drop_starts"]:
+        print(f"{dropped} notes removed")
     print(f"Wrote   {daw_path}" + (f"\n        {out_dir / out_stem}.mid" if cfg["write_mid"] else ""))
 
 

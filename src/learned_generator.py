@@ -59,6 +59,10 @@ def load_generation_config(path):
     # The final note (the C half): "tonic" = base_pitch; "last_chord_root" = the root
     # of the progression's last chord, in the octave nearest base_pitch.
     cfg.setdefault("end_note", "tonic")
+    # Optional last filter: delete every note that STARTS in a window of one bar of the
+    # form, e.g. [{"bar": 2, "from": 10, "to": 16}] = grid steps (16ths) 10-16 of bar 2,
+    # both counted from 1 and inclusive. Notes held into the window are kept.
+    cfg.setdefault("drop_starts", [])
 
     for k in ("num_cycles", "num_tracks", "max_context"):
         if isinstance(cfg[k], bool) or not isinstance(cfg[k], int) or cfg[k] < 1:
@@ -98,6 +102,15 @@ def load_generation_config(path):
         fail(f"end_note must be 'tonic' or 'last_chord_root' (got {cfg['end_note']!r})")
     if cfg["end_note"] == "last_chord_root" and not cfg["chord_progression"]:
         fail("end_note 'last_chord_root' needs a chord_progression")
+    if not isinstance(cfg["drop_starts"], list):
+        fail("drop_starts must be a list of {bar, from, to}")
+    for w in cfg["drop_starts"]:
+        ok = (isinstance(w, dict) and set(w) == {"bar", "from", "to"}
+              and all(isinstance(w[k], int) and not isinstance(w[k], bool) for k in w)
+              and 1 <= w["bar"] <= len(bars) and 1 <= w["from"] <= w["to"])
+        if not ok:
+            fail(f"drop_starts entry {w!r}: need {{'bar', 'from', 'to'}}, ints counted from 1, "
+                 f"bar <= {len(bars)}, from <= to")
     return cfg
 
 
@@ -392,6 +405,16 @@ def generate(cfg, tables):
         for t in tracks:
             t["notes"] = follow_progression(t["notes"], cfg["chord_progression"], source_name,
                                             steps_per_bar, cycle_steps, moves)
+    if cfg["drop_starts"]:
+        for w in cfg["drop_starts"]:
+            if w["to"] > steps_per_bar:
+                raise ValueError(f"drop_starts {w!r}: a bar has only {steps_per_bar} grid steps")
+        drop = {(w["bar"] - 1) * steps_per_bar + s - 1
+                for w in cfg["drop_starts"] for s in range(w["from"], w["to"] + 1)}
+        for t in tracks:
+            kept = [x for x in t["notes"] if x[0] % cycle_steps not in drop]
+            stats["dropped by drop_starts"] += len(t["notes"]) - len(kept)
+            t["notes"] = kept
     return tracks, cycle_steps, stats, moves
 
 

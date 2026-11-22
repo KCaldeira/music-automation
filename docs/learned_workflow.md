@@ -3,7 +3,7 @@
 Status: DRAFT, 2026-11-22. Both stages are implemented: analysis in `scripts/analyze_midi.py`
 (`src/learner.py`) and generation in `scripts/generate_learned.py`
 (`src/learned_generator.py`, `src/dawproject_writer.py`). See section 9.
-Open questions are collected in section 11 in `Q:` / `A:` form, as in `plan.txt`.
+Questions raised while writing it, and their answers, are in section 11 (`Q:` / `A:` form).
 
 A third generation workflow, alongside **stochastic** and **elaboration**. Instead of
 drawing from hand-set weights, it **learns probability tables from a MIDI melody** and
@@ -427,6 +427,22 @@ Chords are written as a root (C, F#, Bb, …) plus one of `""` (major), `m`, `6`
 form has bars) and `source_chord` (default: the tables' `chord`). The code is in
 `src/chords.py`, and `follow_progression()` in `src/learned_generator.py`.
 
+### 6d. Dropping notes by start position (Ken, 2026-11-22)
+
+This optional last filter runs after the chord step. The config key `drop_starts` is a
+list of windows such as `{"bar": 2, "from": 10, "to": 16}`. Each window gives a bar of the
+form and a range of grid steps (16ths) in that bar, counted from 1 and inclusive. Every
+note that **starts** in a window is deleted, in every cycle of every track. A note that
+starts earlier and is held into the window is kept, and so is its length. The melody,
+rhythm and velocities are drawn exactly as without the filter: the matching notes are
+simply removed afterwards, so the other notes are unchanged. The report gives the number
+removed.
+
+The first use is `config/learned/N59_generate_Aaeolian_Am7-Em7-Dm7-C6_bar2gap.json`, with
+seed 60 (16 × 64). It drops 16ths 10–16 of bar 2, which leaves a gap at the end of bar 2:
+1,728 of 23,360 notes were removed. All 16 tracks have a note on 16th 9, so in some
+tracks that note sounds on into the gap.
+
 ### 6c. Velocity (Ken, 2026-11-22)
 
 **Analysis** records each note's velocity in two more weight tables in the tables
@@ -529,7 +545,7 @@ python scripts/generate_learned.py config/learned/N59_generate_Aaeolian.json [--
 `seed`, `tempo`, and optionally `max_context` (default 3), `min_context_count` (3),
 `min_position_count` (3), `transition_exponent` and `position_exponent` (0.5 each),
 `chord_progression`, `source_chord` and `end_note` (section 6b), `velocity` (`"tables"`, or a fixed
-1–127) and `min_velocity_count` (3) (section 6c), `track_name_prefix` (the config name's first
+1–127) and `min_velocity_count` (3) (section 6c), `drop_starts` (section 6d), `track_name_prefix` (the config name's first
 `_` part, e.g. `N59`) and `write_mid` (true). The grid, key and `base_pitch` come from
 the tables file. Output files are named `<config stem>_s<seed>_<timestamp>`.
 
@@ -644,43 +660,57 @@ positions would count as thin and not constrain pitch at all.
 
 ---
 
-## 11. Open questions
+## 11. Questions and answers
 
 Q1: "Ignore the position table if < 3 choices." Does that mean fewer than 3 **notes**
     observed at that 16th (as written above: total weight < `min_position_count`) or fewer
     than 3 **distinct pitch classes**?
-A:
+A: Fewer than 3 **notes** observed at that 16th (total weight < `min_position_count`).
+   Implemented that way. With the transposed N56 input, every 16th has at least 3.
 
 Q2: If **no** order has a context meeting `min_context_count` (possible early in the
     fill, when only the tonic is placed and it is rare in the input), what then?
     Proposed: use k=1 with any total > 0; if the context was never seen at all, use the
     position table times the input's overall pitch frequency.
-A:
+A: Implemented as proposed (section 9): k=1 with any total > 0; if never seen, the
+   overall pitch frequency times the position table. The report counts how often it
+   fires: 26 times in about 22,500 choices in the N59 run.
 
 Q3: Should `period` default to 16 (pool all bars) or 64 (keep the four bars of a cycle
     apart)? Proposed: 16, and maybe allow different periods for T1/T2 and T3 later.
-A:
+A: 16 (one bar). With 64, half the positions have 4 or fewer notes in the test data
+   (section 2). `period` stays a setting.
 
 Q4: Should the chord play any part (e.g. in snapping, or a bonus for chord tones on
     strong beats), or is it only recorded for now?
-A:
+A: Yes, in two ways, both after the melody is drawn (section 6b): the chord
+   progression moves source-chord tones to the nearest tone of each bar's chord, and
+   `end_note: "last_chord_root"` ends each cycle on the last chord's root. The chord
+   plays no part in the analysis itself.
 
 Q5: Should output pitches be limited to a range (e.g. the input's lowest to highest
     note)? The transition tables only produce pitches seen in the input, so the range
     is implicitly limited already.
-A:
+A: Limit by the input (Ken, 2026-11-22), and no extra setting is needed. The transition tables only
+   produce pitches seen in the input. **Exception:** the chord-progression step can move a
+   note up to 2 semitones past the input's top or bottom. In the N59 run, 6 of about
+   23,500 notes went from A6 (the input's top note) to B6 over Em7. Ken decided to
+   leave this as it is (2026-11-22).
 
 Q6: Does every cycle end on the tonic at `base_pitch`, or should the octave (or the
     ending note itself) be a parameter?
-A:
+A: A parameter: `end_note` is `"tonic"` (step 0 at `base_pitch`, the default) or
+   `"last_chord_root"` (the last chord's root, in the octave nearest `base_pitch`; C6 in
+   N59). See section 6b.
 
 Q7: Is a rhythm pattern with very few notes, or none (e.g. an empty B), acceptable?
     Or should the walk be redrawn until each half has at least one note?
-A:
+A: Leave as is (Ken, 2026-11-22). Sparse patterns are acceptable; Ken picks tracks by
+   ear afterwards.
 
 Q8: Should the first note of a cycle relate to the end of the previous cycle (a
     transition across the cycle boundary), or are cycles fully independent as above?
-A:
+A: No (Ken, 2026-11-22). Cycles stay fully independent.
 
 Q9: The tables are in scale steps, so they don't depend on the key. Should `generate`
     be able to render them in a **different root or mode** from the input? For example,
@@ -688,4 +718,5 @@ Q9: The tables are in scale steps, so they don't depend on the key. Should `gene
     same contours and degree patterns, but with major-6th and major-2nd colour. Proposed:
     `generate` takes optional `root` / `mode` / `base_pitch`, defaulting to the tables
     header.
-A:
+A: No (Ken, 2026-11-22). Generation renders in the tables' own key. To use another key,
+   analyse an input transposed into it, as was done for `transposed.mid`.

@@ -1,0 +1,26 @@
+{
+  "description": "N59 learned melodies from the hand-transposed N56 melody (A aeolian over Am7), form AB AB AA BC, moved onto the chords Am7 Em7 Dm7 C6 (one per bar), each 4-bar cycle ending on the note C6 (MIDI 84), the root of the C6 chord. Notes starting on 16ths 10-16 of bar 2 are deleted (a gap at the end of bar 2).",
+
+  "tables": "data/tables/N59_transposed_Aaeolian.json",
+  "output_dir": "data/output/N59_learned",
+
+  "form": "AB AB AA BC",
+  "chord_progression": ["Am7", "Em7", "Dm7", "C6"],
+  "end_note": "last_chord_root",
+  "drop_starts": [{"bar": 2, "from": 10, "to": 16}],
+  "num_cycles": 64,
+  "num_tracks": 16,
+  "seed": 60,
+  "tempo": 112,
+
+  "max_context": 3,
+  "min_context_count": 3,
+  "min_position_count": 3,
+  "transition_exponent": 0.5,
+  "position_exponent": 0.5,
+
+  "velocity": "tables",
+  "min_velocity_count": 3,
+  "track_name_prefix": "N59",
+  "write_mid": true
+}
