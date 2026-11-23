@@ -37,6 +37,9 @@ def print_report(doc, report):
           f"base_pitch {doc['base_pitch']}; MIDI {report['midi_range'][0]}-{report['midi_range'][1]}, "
           f"steps {report['step_range'][0]}..{report['step_range'][1]}")
     print("Degrees " + "  ".join(f"{k}:{v}" for k, v in report["degree_class_totals"].items()))
+    if doc["skip_silent_bars"]:
+        print(f"Silence {c['silent_bars_skipped']} bars left out of p_start "
+              f"(runs of >= {doc['skip_silent_bars']} bars with no note sounding)")
     print("p_start " + " ".join(f"{p:.2f}" for p in doc["onsets"]["p_start"]))
     print("starts  " + " ".join(str(n) for n in doc["onsets"]["n_start"]))
     thin = [s for s, cnt in doc["position_pitch"].items() if sum(cnt.values()) < REPORT_THRESHOLD]

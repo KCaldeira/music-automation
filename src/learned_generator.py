@@ -80,19 +80,25 @@ def load_generation_config(path):
     if v != "tables" and (isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 127):
         fail(f"velocity must be 'tables' or an int in 1..127 (got {v!r})")
 
-    bars = cfg["form"].split()
-    if not bars or any(len(b) != 2 or set(b) - set("ABC") for b in bars):
+    # "walk": no half-bar form; the rhythm is walked over the whole cycle (the tables'
+    # bars_per_cycle) and its last note is the end note.
+    if cfg["form"] == "walk":
+        cfg["form_bars"] = None
+        bars = None
+    else:
+        bars = cfg["form"].split()
+    if bars is not None and (not bars or any(len(b) != 2 or set(b) - set("ABC") for b in bars)):
         fail(f"form must be bars of two letters from A, B, C, e.g. 'AB AB AA BC' (got {cfg['form']!r})")
-    halves = "".join(bars)
-    if "C" in halves[:-1]:
-        fail("C (the ending half) may only be the last half of the form")
-    cfg["form_bars"] = bars
+    if bars is not None:
+        if "C" in "".join(bars)[:-1]:
+            fail("C (the ending half) may only be the last half of the form")
+        cfg["form_bars"] = bars
 
     prog = cfg["chord_progression"]
     if prog is not None:
         if isinstance(prog, str):
             prog = prog.split()
-        if len(prog) != len(bars):
+        if bars is not None and len(prog) != len(bars):
             fail(f"chord_progression has {len(prog)} chords but the form has {len(bars)} bars")
         try:
             for name in prog + ([cfg["source_chord"]] if cfg["source_chord"] else []):
@@ -109,10 +115,10 @@ def load_generation_config(path):
     for w in cfg["drop_starts"]:
         ok = (isinstance(w, dict) and set(w) == {"bar", "from", "to"}
               and all(isinstance(w[k], int) and not isinstance(w[k], bool) for k in w)
-              and 1 <= w["bar"] <= len(bars) and 1 <= w["from"] <= w["to"])
+              and 1 <= w["bar"] <= (len(bars) if bars else w["bar"]) and 1 <= w["from"] <= w["to"])
         if not ok:
             fail(f"drop_starts entry {w!r}: need {{'bar', 'from', 'to'}}, ints counted from 1, "
-                 f"bar <= {len(bars)}, from <= to")
+                 f"bar within the form, from <= to")
     return cfg
 
 
@@ -183,6 +189,7 @@ def load_tables(path):
         "chord": doc.get("chord"),
         "divisions_per_beat": doc["divisions_per_beat"],
         "beats_per_bar": doc["beats_per_bar"],
+        "bars_per_cycle": doc["bars_per_cycle"],
         "p_start": p_start,
         "lengths": lengths,
         "position_pitch": position_pitch,
@@ -265,20 +272,22 @@ def _sample(rng, weights):
 # Rhythm and form (sections 4-5)
 # --------------------------------------------------------------------------
 
-def rhythm_walk(tables, rng, stats):
-    """One bar of (start, length) notes, each cut at the half-bar line."""
+def rhythm_walk(tables, rng, stats, total=None, cut_every=None, cut_name="half_bar"):
+    """(start, length) notes over total grid steps (default one bar), each cut at the
+    next multiple of cut_every (default the half-bar line)."""
     steps_per_bar = tables["divisions_per_beat"] * tables["beats_per_bar"]
-    half = steps_per_bar // 2
+    total = total or steps_per_bar
+    cut_every = cut_every or steps_per_bar // 2
     period = tables["period"]
     notes, s = [], 0
-    while s < steps_per_bar:
+    while s < total:
         lengths = tables["lengths"][s % period]
         if rng.random() < tables["p_start"][s % period] and sum(lengths.values()) > 0:
             L = _sample(rng, lengths)
-            end_of_half = half if s < half else steps_per_bar
-            if s + L > end_of_half:
-                stats["notes_cut_at_half_bar"] += 1
-                L = end_of_half - s
+            boundary = (s // cut_every + 1) * cut_every
+            if s + L > boundary:
+                stats[f"notes_cut_at_{cut_name}"] += 1
+                L = boundary - s
             notes.append((s, L))
             s += L
         else:
@@ -395,8 +404,14 @@ def generate(cfg, tables):
     last = end_step(cfg, tables)
     tracks = []
     for m in range(cfg["num_tracks"]):
-        bar = rhythm_walk(tables, rhythm_rng(cfg["seed"], m), stats)
-        slots, cycle_steps = cycle_slots(bar, cfg["form_bars"], tables)
+        if cfg["form_bars"] is None:          # "walk": the whole cycle at once
+            cycle_steps = tables["bars_per_cycle"] * steps_per_bar
+            bar = rhythm_walk(tables, rhythm_rng(cfg["seed"], m), stats,
+                              cycle_steps, cycle_steps, "cycle_end")
+            slots = [(s, L, i == len(bar) - 1) for i, (s, L) in enumerate(bar)]
+        else:
+            bar = rhythm_walk(tables, rhythm_rng(cfg["seed"], m), stats)
+            slots, cycle_steps = cycle_slots(bar, cfg["form_bars"], tables)
         notes = []
         for n in range(cfg["num_cycles"]):
             pitches = fill_melody(slots, tables, cfg, melody_rng(cfg["seed"], n), stats, last)
@@ -408,6 +423,12 @@ def generate(cfg, tables):
         tracks.append({"bar": bar, "notes": notes, "slots_per_cycle": len(slots)})
 
     moves = Counter()
+    n_bars = cycle_steps // steps_per_bar
+    if cfg["chord_progression"] and len(cfg["chord_progression"]) != n_bars:
+        raise ValueError(f"chord_progression has {len(cfg['chord_progression'])} chords but a "
+                         f"cycle has {n_bars} bars")
+    if any(w["bar"] > n_bars for w in cfg["drop_starts"]):
+        raise ValueError(f"drop_starts names a bar past the cycle's {n_bars} bars")
     if cfg["chord_progression"]:
         source_name = cfg["source_chord"] or tables["chord"]
         for t in tracks:

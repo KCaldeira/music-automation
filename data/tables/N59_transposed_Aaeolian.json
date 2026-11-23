@@ -1,6 +1,6 @@
 {
   "format": "music-automation learned tables v1",
-  "created": "2026-11-22",
+  "created": "2026-11-23",
   "source_midi": "data/input/transposed.mid",
   "source_tempo_bpm": 108.0,
   "source_time_signature": "4/4",
@@ -16,8 +16,9 @@
   "period": 16,
   "snap_priority": [0, 2, 4, 5],
   "max_context": 3,
+  "skip_silent_bars": 2,
 
-  "cleaning": {"raw_notes": 1825, "moved_by_quantizing": 1265, "dropped_zero_length": 6, "dropped_same_start": 10, "cut_at_next_start": 0, "notes_after_cleaning": 1809, "snapped_to_key": 0},
+  "cleaning": {"raw_notes": 1825, "moved_by_quantizing": 1265, "dropped_zero_length": 6, "dropped_same_start": 10, "cut_at_next_start": 0, "notes_after_cleaning": 1809, "snapped_to_key": 0, "silent_bars_skipped": 0},
 
   "onsets": {
     "p_start": [0.9868, 0.7143, 0.8683, 0.0964, 0.9696, 0.3, 0.9749, 0.2353, 0.9933, 0.3333, 0.969, 0.1321, 0.9685, 0.5882, 0.7929, 0.0345],

@@ -23,15 +23,15 @@ import midi_writer
 PC = "C C# D D# E F F# G G# A A# B".split()
 
 
-def bar_picture(bar, steps_per_bar):
-    """A one-line drawing of the rhythm: 'x' = note start, '-' = held, '.' = rest."""
-    cells = ["."] * steps_per_bar
+def bar_picture(bar, total, split):
+    """A one-line drawing of the rhythm: 'x' = note start, '-' = held, '.' = rest,
+    with '|' every split steps."""
+    cells = ["."] * total
     for s, L in bar:
         cells[s] = "x"
         for t in range(s + 1, s + L):
             cells[t] = "-"
-    half = steps_per_bar // 2
-    return "".join(cells[:half]) + " | " + "".join(cells[half:])
+    return " | ".join("".join(cells[i:i + split]) for i in range(0, total, split))
 
 
 def main():
@@ -73,17 +73,21 @@ def main():
 
     # Report
     print(f"Tables  {cfg['tables']}  ({key}, chord {tables['chord']}, base_pitch {tables['base_pitch']})")
-    last_notes = {}   # cycle -> final MIDI pitch (the same in every track)
-    for s, _, p, _ in tracks[0]["notes"]:
-        last_notes[s // cycle_steps] = p
+    last_notes = {}   # (track, cycle) -> final MIDI pitch
+    for m, t in enumerate(tracks):
+        for s, _, p, _ in t["notes"]:
+            last_notes[(m, s // cycle_steps)] = p
     ends = Counter(f"{PC[p % 12]}{p // 12 - 1}" for p in last_notes.values())
     ending = (f"ending on {', '.join(f'{k} x{v}' for k, v in ends.most_common())} (sampled)"
               if cfg["end_note"] == "sampled" else f"ending on {next(iter(ends))}")
     print(f"Form    {cfg['form']}  ({cycle_steps // steps_per_bar} bars), {cfg['num_cycles']} cycles, "
           f"{cfg['tempo']} bpm, seed {cfg['seed']}, {ending}")
-    print("Rhythms (x = note start, - = held, . = rest; A | B):")
+    walk = cfg["form_bars"] is None
+    print("Rhythms (x = note start, - = held, . = rest; " + ("bars" if walk else "A | B") + "):")
     for name, t in zip(names, tracks):
-        print(f"  {name:8s} {bar_picture(t['bar'], steps_per_bar)}   {t['slots_per_cycle']} notes/cycle")
+        pic = (bar_picture(t["bar"], cycle_steps, steps_per_bar) if walk
+               else bar_picture(t["bar"], steps_per_bar, steps_per_bar // 2))
+        print(f"  {name:{max(8, max(map(len, names)))}s} {pic}   {t['slots_per_cycle']} notes/cycle")
     dropped = stats.pop("dropped by drop_starts", 0)
     print("Choices " + ", ".join(f"{k} {v}" for k, v in sorted(stats.items())))
     if cfg["chord_progression"]:

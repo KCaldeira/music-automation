@@ -1,0 +1,20 @@
+{
+  "description": "Learned-workflow tables for N45, bass line ('Octave piano bass new'), A2-based, read as A aeolian over Am7, 16th-quantized, 2-bar cycles and 2-bar (32-step) position tables. Source tempo 93.191 bpm.",
+
+  "input_midi": "data/input/N45/Octave piano bass new.mid",
+  "output_path": "data/tables/N45_bass_Aaeolian.json",
+
+  "root": "A",
+  "mode": "aeolian",
+  "chord": "Am7",
+  "base_pitch": 45,
+
+  "divisions_per_beat": 4,
+  "beats_per_bar": 4,
+  "bars_per_cycle": 2,
+  "input_quantization": "1/16",
+
+  "period": 32,
+  "snap_priority": [0, 2, 4, 5],
+  "max_context": 3
+}

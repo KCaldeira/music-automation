@@ -46,6 +46,7 @@ The workflow is two separate programs joined by a **tables file**:
 | `bars_per_cycle` | `4` | both | Bars in one generated cycle (= one input segment). |
 | `period` | `16` (one bar) | analyze | Length, in grid steps, of the position tables. `16` pools all bars; `64` keeps the four bars of a cycle apart but needs four times the data. |
 | `snap_priority` | `[0,2,4,5]` (root, 3rd, 5th, 6th) | analyze | Scale-degree order used to snap chromatic notes. |
+| `skip_silent_bars` | `2` | analyze | Runs of at least this many bars with no note sounding are left out of T1. `0` keeps every bar. |
 | `form` | `"AB AB AA BC"` | generate | Cycle layout in half-bars (section 5). |
 | `num_cycles` (N) | e.g. `64` | generate | Cycles per track. |
 | `num_tracks` (M) | e.g. `8` | generate | Parallel tracks. |
@@ -194,6 +195,16 @@ For each position s:
 is the probability the rhythm walk (section 4) needs. Positions where notes rarely start
 get a low value automatically.
 
+**Long silences are left out** (Ken, 2026-11-23). A bar is silent if no note sounds in
+it at all; a note held over from the previous bar counts as sounding. A run of at least
+`skip_silent_bars` (default 2) silent bars is left out of `n_free`, so it does not lower
+`p_start` everywhere. A single silent bar is kept, as a rest within the music. Only T1 is
+affected: the other tables count notes, and rests are already ignored by the
+transitions, so the note before a long silence still links to the note after it. The
+`cleaning` line of the tables file records `silent_bars_skipped`. In the N45 melody,
+23 bars were skipped (runs of 2, 2, 2, 2, 2, 3, 4 and 6 bars) and 20 single silent bars
+were kept; the N59 and N45 bass inputs have no such runs.
+
 ### T2 — length distribution `lengths[s]`
 
 For each position s, a count of the lengths (in grid steps) of the notes that start at s.
@@ -337,6 +348,22 @@ B's notes move from beats 3–4 to beats 1–2, and C sits on beats 3–4. A cyc
 Generalizing: any string of A, B and C works, with one pair per bar; C must come last.
 More letters (e.g. a second bar pattern giving D and E) can be added later.
 
+**`form: "walk"`** (Ken, 2026-11-23, first used for N45). There are no halves and no C.
+The rhythm walk of section 4 runs over the **whole cycle** (the tables'
+`bars_per_cycle` bars) instead of one bar, reading `p_start` and the lengths at
+position `s mod period`. A note is cut only at the end of the cycle (counted as
+`notes_cut_at_cycle_end`). The resulting pattern is still fixed per track and repeated
+every cycle. Its **last note is the end note**: with `end_note: "sampled"` it is drawn
+from the tables at its own position, then the backward fill runs from it as usual. This
+is meant for tables whose `period` is the whole cycle (e.g. 32 for two bars of 16ths),
+so each bar of the cycle has its own onsets, lengths and pitches. A
+`chord_progression` must then have one chord per bar of the cycle.
+
+N45 (2026-11-23) uses it for two separate tables files, bass and melody (A aeolian over
+Am7, 2-bar cycles, `period` 32), each with its own generation config
+(`config/learned/N45_generate_{bass,melody}_Aaeolian.json`), with no chord step and no
+filter.
+
 ---
 
 ## 6. Stage 2b: the melody, filled backwards (generate, per cycle)
@@ -426,8 +453,10 @@ C, and the approach to the cadence fits. The root must be in the tables' scale.
 **A sampled ending** (`end_note: "sampled"`; Ken, 2026-11-22). The final note is not
 fixed. It is drawn first, before the rest of the cycle, like a note with no context:
 from the overall pitch frequency of the input (every note's actual pitch, octave
-included) times the position table at the C slot (beat 3), with the usual exponents.
-It is drawn with the cycle's melody seed, so cycle n ends on the same note in every
+included) times the position table at the last note's position (the C slot, beat 3,
+for a half-bar form; wherever the walk's last note falls for `form: "walk"`), with the
+usual exponents.
+It is drawn with the cycle's melody seed, so with a half-bar form cycle n ends on the same note in every
 track. The backward fill then starts from that note. The chord step treats it like any
 other note. Over C6 nothing moves, because every Am7 tone is also a C6 tone, so a cycle
 can end on a passing tone such as B or D. In the first run
@@ -570,7 +599,8 @@ times the position table.
 **Analysis config keys:** `input_midi`, `output_path`, `root`, `mode` (or `scale_semitones`),
 `chord`, `base_pitch`, `divisions_per_beat`, `beats_per_bar`, `bars_per_cycle`,
 `input_quantization`, and optionally `period` (default one bar), `snap_priority`
-(default `[0,2,4,5]`) and `max_context` (default 3, the highest order written).
+(default `[0,2,4,5]`), `max_context` (default 3, the highest order written) and
+`skip_silent_bars` (default 2; section 3, T1).
 `base_pitch` must be a `root` note.
 
 **Details of the written file:**

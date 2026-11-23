@@ -65,10 +65,16 @@ def load_analysis_config(path):
     cfg.setdefault("period", cfg["divisions_per_beat"] * cfg["beats_per_bar"])
     cfg.setdefault("snap_priority", [0, 2, 4, 5])
     cfg.setdefault("max_context", 3)
+    # Runs of at least this many bars with no note sounding are left out of the onset
+    # table (T1), so long silences do not lower p_start. 0 = keep every bar.
+    cfg.setdefault("skip_silent_bars", 2)
 
     for k in ("divisions_per_beat", "beats_per_bar", "bars_per_cycle", "period", "max_context"):
         if isinstance(cfg[k], bool) or not isinstance(cfg[k], int) or cfg[k] < 1:
             fail(f"{k} must be a positive int (got {cfg[k]!r})")
+    v = cfg["skip_silent_bars"]
+    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+        fail(f"skip_silent_bars must be a non-negative int (got {v!r})")
 
     # Scale: a mode name or an explicit list (if both are given they must agree).
     if cfg["mode"] is None and cfg["scale_semitones"] is None:
@@ -209,16 +215,28 @@ def build_tables(notes, steps, cfg):
     d = len(cfg["scale_semitones"])
     steps_per_bar = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
 
-    # T1: walk the timeline to the end of the last bar that holds a note.
+    # T1: walk the timeline to the end of the last bar that holds a note, skipping
+    # runs of >= skip_silent_bars bars in which no note sounds.
     last_end = max(e for _, e, _, _ in notes)
     timeline = -(-last_end // steps_per_bar) * steps_per_bar
     held = set()
+    sounding_bars = set()
     for s, e, _, _ in notes:
         held.update(range(s + 1, e))
+        sounding_bars.update(range(s // steps_per_bar, (e - 1) // steps_per_bar + 1))
+    skipped = set()
+    run = []
+    for b in range(timeline // steps_per_bar + 1):       # one past the end closes the last run
+        if b < timeline // steps_per_bar and b not in sounding_bars:
+            run.append(b)
+            continue
+        if cfg["skip_silent_bars"] and len(run) >= cfg["skip_silent_bars"]:
+            skipped.update(run)
+        run = []
     starts = {s for s, *_ in notes}
     n_free, n_start = [0] * period, [0] * period
     for t in range(timeline):
-        if t not in held:
+        if t not in held and t // steps_per_bar not in skipped:
             n_free[t % period] += 1
             n_start[t % period] += t in starts
     p_start = [round(n_start[i] / n_free[i], 4) if n_free[i] else 0 for i in range(period)]
@@ -251,6 +269,7 @@ def build_tables(notes, steps, cfg):
         "velocity": velocity,
         "velocity_by_length": velocity_by_length,
         "timeline_steps": timeline,
+        "silent_bars_skipped": len(skipped),
     }
 
 
@@ -279,6 +298,7 @@ def analyze(cfg):
     tables = build_tables(notes, steps, cfg)
     steps_per_bar = cfg["divisions_per_beat"] * cfg["beats_per_bar"]
     report["bars"] = tables["timeline_steps"] // steps_per_bar
+    report["silent_bars_skipped"] = tables["silent_bars_skipped"]
 
     doc = {
         "format": TABLES_FORMAT,
@@ -298,10 +318,11 @@ def analyze(cfg):
         "period": cfg["period"],
         "snap_priority": cfg["snap_priority"],
         "max_context": cfg["max_context"],
+        "skip_silent_bars": cfg["skip_silent_bars"],
         "cleaning": {k: report[k] for k in (
             "raw_notes", "moved_by_quantizing", "dropped_zero_length",
             "dropped_same_start", "cut_at_next_start", "notes_after_cleaning",
-            "snapped_to_key")},
+            "snapped_to_key", "silent_bars_skipped")},
         **{k: tables[k] for k in ("onsets", "lengths", "position_pitch", "transitions",
                                   "velocity", "velocity_by_length")},
     }
