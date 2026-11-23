@@ -542,6 +542,19 @@ So:
 - Changing `num_cycles` or `num_tracks` does not change the tracks and cycles that
   already exist.
 
+**Varying everything per cycle** (Ken, 2026-11-23). Two optional config keys change what
+the rhythm and melody streams are keyed by:
+
+| Key | Default | Other value |
+|---|---|---|
+| `rhythm_seed_by` | `"track"`: key `(1, m)`, one rhythm per track | `"track_cycle"`: key `(1, m, n)`, a new rhythm for every track and cycle |
+| `melody_seed_by` | `"cycle"`: key `(2, n)`, shared by all tracks | `"track_cycle"`: key `(2, m, n)`, a new melody for every track and cycle |
+
+With both set to `"track_cycle"`, every (track, cycle) has its own rhythm and notes, so
+nothing repeats. The report then shows only each track's first-cycle rhythm, with the
+range of notes per cycle. First used in
+`config/learned/N45_generate_{bass,melody}_Aaeolian_varied.json`.
+
 ---
 
 ## 8. Output

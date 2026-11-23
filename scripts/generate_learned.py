@@ -83,11 +83,17 @@ def main():
     print(f"Form    {cfg['form']}  ({cycle_steps // steps_per_bar} bars), {cfg['num_cycles']} cycles, "
           f"{cfg['tempo']} bpm, seed {cfg['seed']}, {ending}")
     walk = cfg["form_bars"] is None
-    print("Rhythms (x = note start, - = held, . = rest; " + ("bars" if walk else "A | B") + "):")
+    per_cycle = cfg["rhythm_seed_by"] == "track_cycle"
+    print(f"Seeds   rhythm by {cfg['rhythm_seed_by'].replace('_', ' and ')}, "
+          f"melody by {cfg['melody_seed_by'].replace('_', ' and ')}")
+    print("Rhythms (x = note start, - = held, . = rest; " + ("bars" if walk else "A | B")
+          + ("; first cycle only, it changes every cycle" if per_cycle else "") + "):")
     for name, t in zip(names, tracks):
         pic = (bar_picture(t["bar"], cycle_steps, steps_per_bar) if walk
                else bar_picture(t["bar"], steps_per_bar, steps_per_bar // 2))
-        print(f"  {name:{max(8, max(map(len, names)))}s} {pic}   {t['slots_per_cycle']} notes/cycle")
+        lo, hi = t["slots_range"]
+        count = f"{lo}-{hi}" if lo != hi else f"{lo}"
+        print(f"  {name:{max(8, max(map(len, names)))}s} {pic}   {count} notes/cycle")
     dropped = stats.pop("dropped by drop_starts", 0)
     print("Choices " + ", ".join(f"{k} {v}" for k, v in sorted(stats.items())))
     if cfg["chord_progression"]:

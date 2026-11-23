@@ -65,6 +65,16 @@ def load_generation_config(path):
     # form, e.g. [{"bar": 2, "from": 10, "to": 16}] = grid steps (16ths) 10-16 of bar 2,
     # both counted from 1 and inclusive. Notes held into the window are kept.
     cfg.setdefault("drop_starts", [])
+    # What the random streams are keyed by (section 7). Defaults: one rhythm per track,
+    # repeated every cycle; one melody per cycle, shared by all tracks. "track_cycle"
+    # gives every (track, cycle) its own rhythm or melody.
+    cfg.setdefault("rhythm_seed_by", "track")
+    cfg.setdefault("melody_seed_by", "cycle")
+    for k, allowed in (("rhythm_seed_by", ("track", "track_cycle")),
+                       ("melody_seed_by", ("cycle", "track_cycle"))):
+        if cfg[k] not in allowed:
+            raise ValueError(f"Invalid generation config {path}: {k} must be one of "
+                             f"{allowed} (got {cfg[k]!r})")
 
     for k in ("num_cycles", "num_tracks", "max_context"):
         if isinstance(cfg[k], bool) or not isinstance(cfg[k], int) or cfg[k] < 1:
@@ -227,12 +237,17 @@ def step_to_midi(step, tables):
 # Random streams (section 7)
 # --------------------------------------------------------------------------
 
-def rhythm_rng(seed, track):
-    return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(RHYTHM_STREAM, track)))
+def rhythm_rng(seed, track, cycle=None):
+    """Keyed by track; also by cycle when rhythm_seed_by is "track_cycle"."""
+    key = (RHYTHM_STREAM, track) if cycle is None else (RHYTHM_STREAM, track, cycle)
+    return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=key))
 
 
-def melody_rng(seed, cycle):
-    return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(MELODY_STREAM, cycle)))
+def melody_rng(seed, cycle, track=None):
+    """Keyed by cycle (shared by all tracks); also by track when melody_seed_by is
+    "track_cycle"."""
+    key = (MELODY_STREAM, cycle) if track is None else (MELODY_STREAM, track, cycle)
+    return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=key))
 
 
 def velocity_rng(seed, track, cycle):
@@ -403,24 +418,37 @@ def generate(cfg, tables):
     stats = Counter()
     last = end_step(cfg, tables)
     tracks = []
-    for m in range(cfg["num_tracks"]):
+    def make_rhythm(rng):
+        """(rhythm, slots, cycle_steps) from one rhythm stream."""
         if cfg["form_bars"] is None:          # "walk": the whole cycle at once
             cycle_steps = tables["bars_per_cycle"] * steps_per_bar
-            bar = rhythm_walk(tables, rhythm_rng(cfg["seed"], m), stats,
-                              cycle_steps, cycle_steps, "cycle_end")
+            bar = rhythm_walk(tables, rng, stats, cycle_steps, cycle_steps, "cycle_end")
             slots = [(s, L, i == len(bar) - 1) for i, (s, L) in enumerate(bar)]
         else:
-            bar = rhythm_walk(tables, rhythm_rng(cfg["seed"], m), stats)
+            bar = rhythm_walk(tables, rng, stats)
             slots, cycle_steps = cycle_slots(bar, cfg["form_bars"], tables)
-        notes = []
+        return bar, slots, cycle_steps
+
+    per_cycle_rhythm = cfg["rhythm_seed_by"] == "track_cycle"
+    for m in range(cfg["num_tracks"]):
+        if not per_cycle_rhythm:
+            bar, slots, cycle_steps = make_rhythm(rhythm_rng(cfg["seed"], m))
+        notes, counts = [], []
         for n in range(cfg["num_cycles"]):
-            pitches = fill_melody(slots, tables, cfg, melody_rng(cfg["seed"], n), stats, last)
+            if per_cycle_rhythm:
+                rhythm, slots, cycle_steps = make_rhythm(rhythm_rng(cfg["seed"], m, n))
+                if n == 0:
+                    bar = rhythm                  # shown in the report
+            mrng = melody_rng(cfg["seed"], n, m if cfg["melody_seed_by"] == "track_cycle" else None)
+            pitches = fill_melody(slots, tables, cfg, mrng, stats, last)
             base = n * cycle_steps
             vrng = velocity_rng(cfg["seed"], m, n)
             velocities = [note_velocity(pos, L, tables, cfg, vrng, stats) for pos, L, _ in slots]
             notes += [(base + pos, L, step_to_midi(x, tables), v)
                       for (pos, L, _), x, v in zip(slots, pitches, velocities)]
-        tracks.append({"bar": bar, "notes": notes, "slots_per_cycle": len(slots)})
+            counts.append(len(slots))
+        tracks.append({"bar": bar, "notes": notes, "slots_per_cycle": len(slots),
+                       "slots_range": (min(counts), max(counts))})
 
     moves = Counter()
     n_bars = cycle_steps // steps_per_bar
