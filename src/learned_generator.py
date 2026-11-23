@@ -59,7 +59,8 @@ def load_generation_config(path):
     # The final note (the C half): "tonic" = base_pitch; "last_chord_root" = the root
     # of the progression's last chord, in the octave nearest base_pitch; "sampled" =
     # drawn like any note with no context (overall pitch frequency x position table).
-    cfg.setdefault("end_note", "tonic")
+    # Default: the last chord's root when there is a progression, else the tonic.
+    cfg.setdefault("end_note", "last_chord_root" if cfg["chord_progression"] else "tonic")
     # Optional last filter: delete every note that STARTS in a window of one bar of the
     # form, e.g. [{"bar": 2, "from": 10, "to": 16}] = grid steps (16ths) 10-16 of bar 2,
     # both counted from 1 and inclusive. Notes held into the window are kept.

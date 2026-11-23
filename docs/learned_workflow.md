@@ -411,9 +411,11 @@ With source Am7 (A C E G), these are the only changes:
 | 3 | Dm7 (D F A C) | E → F, G → A (tie F/A, fifth wins) |
 | 4 | C6 (C E G A) | none: C6 has the same notes as Am7 |
 
-With the default `end_note: "tonic"`, each cycle still ends on A5.
+With `end_note: "tonic"`, each cycle still ends on A5.
 
 **Ending on the last chord's root** (`end_note: "last_chord_root"`; Ken, 2026-11-22).
+This is the default whenever a `chord_progression` is given (Ken preferred these
+endings in N59); without a progression the default is `"tonic"`.
 The final note (the C half) becomes the **root of the progression's last chord**, in
 the octave nearest `base_pitch`. For `… C6` with `base_pitch` A5, that is **C6** (MIDI
 84): three semitones up, against nine down to C5. This changes where the backward fill
@@ -710,9 +712,10 @@ A: Limit by the input (Ken, 2026-11-22), and no extra setting is needed. The tra
 
 Q6: Does every cycle end on the tonic at `base_pitch`, or should the octave (or the
     ending note itself) be a parameter?
-A: A parameter: `end_note` is `"tonic"` (step 0 at `base_pitch`, the default) or
+A: A parameter: `end_note` is `"tonic"` (step 0 at `base_pitch`; the default without a
+   chord progression) or
    `"last_chord_root"` (the last chord's root, in the octave nearest `base_pitch`; C6 in
-   N59), or `"sampled"` (drawn from the tables each cycle). See section 6b.
+   N59; the default with a chord progression), or `"sampled"` (drawn from the tables each cycle). See section 6b.
 
 Q7: Is a rhythm pattern with very few notes, or none (e.g. an empty B), acceptable?
     Or should the walk be redrawn until each half has at least one note?
