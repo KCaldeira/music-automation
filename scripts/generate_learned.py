@@ -83,11 +83,13 @@ def main():
     print(f"Form    {cfg['form']}  ({cycle_steps // steps_per_bar} bars), {cfg['num_cycles']} cycles, "
           f"{cfg['tempo']} bpm, seed {cfg['seed']}, {ending}")
     walk = cfg["form_bars"] is None
-    per_cycle = cfg["rhythm_seed_by"] == "track_cycle"
+    per_cycle = cfg["rhythm_seed_by"] == "track_cycle" or cfg["evolve"]
     print(f"Seeds   rhythm by {cfg['rhythm_seed_by'].replace('_', ' and ')}, "
           f"melody by {cfg['melody_seed_by'].replace('_', ' and ')}")
     print("Rhythms (x = note start, - = held, . = rest; " + ("bars" if walk else "A | B")
           + ("; first cycle only, it changes every cycle" if per_cycle else "") + "):")
+    if cfg["evolve"]:
+        print("        evolve: each cycle re-fills one random stretch of the previous one")
     for name, t in zip(names, tracks):
         pic = (bar_picture(t["bar"], cycle_steps, steps_per_bar) if walk
                else bar_picture(t["bar"], steps_per_bar, steps_per_bar // 2))
@@ -95,6 +97,20 @@ def main():
         count = f"{lo}-{hi}" if lo != hi else f"{lo}"
         print(f"  {name:{max(8, max(map(len, names)))}s} {pic}   {count} notes/cycle")
     dropped = stats.pop("dropped by drop_starts", 0)
+    ev = {k: stats.pop(k) for k in [k for k in stats if k.startswith("evolve_")]}
+    if ev:
+        c = ev["evolve_cycles"]
+        drift = []
+        for t in tracks:
+            by_cycle = {}
+            for s, L, p, _ in t["notes"]:
+                by_cycle.setdefault(s // cycle_steps, set()).add((s % cycle_steps, L, p))
+            first, final = by_cycle.get(0, set()), by_cycle.get(cfg["num_cycles"] - 1, set())
+            drift.append(len(final - first) / max(len(final), 1))
+        print(f"Evolve  per cycle: k {ev['evolve_k_total'] / c:.2f} on average, "
+              f"range {ev['evolve_range_steps'] / c:.1f} sixteenths after extending, "
+              f"{ev['evolve_notes_removed'] / c:.1f} notes removed, {ev['evolve_notes_drawn'] / c:.1f} drawn; "
+              f"last cycle vs first: {sum(drift) / len(drift):.0%} of notes differ (mean over tracks)")
     print("Choices " + ", ".join(f"{k} {v}" for k, v in sorted(stats.items())))
     if cfg["chord_progression"]:
         source = cfg["source_chord"] or tables["chord"]

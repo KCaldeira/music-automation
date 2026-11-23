@@ -19,7 +19,7 @@ import numpy as np
 import chords
 from learner import TABLES_FORMAT
 
-RHYTHM_STREAM, MELODY_STREAM, VELOCITY_STREAM = 1, 2, 3   # SeedSequence spawn-key tags
+RHYTHM_STREAM, MELODY_STREAM, VELOCITY_STREAM, EVOLVE_STREAM = 1, 2, 3, 4   # SeedSequence spawn-key tags
 
 
 # --------------------------------------------------------------------------
@@ -70,6 +70,11 @@ def load_generation_config(path):
     # gives every (track, cycle) its own rhythm or melody.
     cfg.setdefault("rhythm_seed_by", "track")
     cfg.setdefault("melody_seed_by", "cycle")
+    # Evolve (section 6e): each cycle after the first is the previous cycle with one
+    # random stretch re-walked and re-filled. Needs form "walk".
+    cfg.setdefault("evolve", False)
+    # Half-width k of the changed stretch: P(k) = (1 - r) r^k; 0.5 halves each step.
+    cfg.setdefault("evolve_k_ratio", 0.5)
     for k, allowed in (("rhythm_seed_by", ("track", "track_cycle")),
                        ("melody_seed_by", ("cycle", "track_cycle"))):
         if cfg[k] not in allowed:
@@ -120,6 +125,15 @@ def load_generation_config(path):
         fail(f"end_note must be 'tonic', 'last_chord_root' or 'sampled' (got {cfg['end_note']!r})")
     if cfg["end_note"] == "last_chord_root" and not cfg["chord_progression"]:
         fail("end_note 'last_chord_root' needs a chord_progression")
+    if not isinstance(cfg["evolve"], bool):
+        fail(f"evolve must be true or false (got {cfg['evolve']!r})")
+    r = cfg["evolve_k_ratio"]
+    if isinstance(r, bool) or not isinstance(r, (int, float)) or not 0 <= r < 1:
+        fail(f"evolve_k_ratio must be a number in [0, 1) (got {r!r})")
+    if cfg["evolve"] and bars is not None:
+        fail("evolve needs form 'walk' (a half-bar form reuses one bar in several places)")
+    if cfg["evolve"] and "track_cycle" in (cfg["rhythm_seed_by"], cfg["melody_seed_by"]):
+        fail("evolve cannot be combined with rhythm_seed_by/melody_seed_by 'track_cycle'")
     if not isinstance(cfg["drop_starts"], list):
         fail("drop_starts must be a list of {bar, from, to}")
     for w in cfg["drop_starts"]:
@@ -250,6 +264,11 @@ def melody_rng(seed, cycle, track=None):
     return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=key))
 
 
+def evolve_rng(seed, track, cycle):
+    """For evolve: choosing, re-walking and re-filling the range changed in cycle n."""
+    return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(EVOLVE_STREAM, track, cycle)))
+
+
 def velocity_rng(seed, track, cycle):
     """Keyed by track (like the rhythm) and by cycle, so velocities differ between
     tracks and change every 4-bar cycle. Separate from the rhythm and melody streams."""
@@ -287,19 +306,19 @@ def _sample(rng, weights):
 # Rhythm and form (sections 4-5)
 # --------------------------------------------------------------------------
 
-def rhythm_walk(tables, rng, stats, total=None, cut_every=None, cut_name="half_bar"):
-    """(start, length) notes over total grid steps (default one bar), each cut at the
-    next multiple of cut_every (default the half-bar line)."""
+def rhythm_walk(tables, rng, stats, total=None, cut_every=None, cut_name="half_bar", start=0):
+    """(start, length) notes from grid step start up to total (default one bar), each
+    cut at the next multiple of cut_every (default the half-bar line) or at total."""
     steps_per_bar = tables["divisions_per_beat"] * tables["beats_per_bar"]
     total = total or steps_per_bar
     cut_every = cut_every or steps_per_bar // 2
     period = tables["period"]
-    notes, s = [], 0
+    notes, s = [], start
     while s < total:
         lengths = tables["lengths"][s % period]
         if rng.random() < tables["p_start"][s % period] and sum(lengths.values()) > 0:
             L = _sample(rng, lengths)
-            boundary = (s // cut_every + 1) * cut_every
+            boundary = min((s // cut_every + 1) * cut_every, total)
             if s + L > boundary:
                 stats[f"notes_cut_at_{cut_name}"] += 1
                 L = boundary - s
@@ -331,9 +350,11 @@ def cycle_slots(bar_notes, form_bars, tables):
 # Backward melody fill (section 6)
 # --------------------------------------------------------------------------
 
-def fill_melody(slots, tables, cfg, rng, stats, last=0):
+def fill_melody(slots, tables, cfg, rng, stats, last=0, known=None):
     """Pitches (scale steps) for every slot, chosen from the last slot backwards.
-    last: the fixed final note, or None to draw it like any note without context."""
+    last: the fixed final note, or None to draw it like any note without context.
+    known: optional list, one per slot, of a fixed pitch (kept, and used as context
+    for the slots before it) or None (drawn)."""
     d = len(tables["scale"])
     period = tables["period"]
     T = tables["transitions"]
@@ -343,6 +364,10 @@ def fill_melody(slots, tables, cfg, rng, stats, last=0):
 
     for j in range(len(slots) - 1, -1, -1):
         pos, _, is_tonic = slots[j]
+        if known is not None and known[j] is not None:
+            steps[j] = known[j]
+            placed.insert(0, known[j])
+            continue
         if is_tonic and last is not None:
             steps[j] = last
             placed.insert(0, last)
@@ -402,6 +427,39 @@ def fill_melody(slots, tables, cfg, rng, stats, last=0):
     return steps
 
 
+def evolve_cycle(slots, pitches, cycle_steps, tables, cfg, rng, stats, last):
+    """Section 6e: the previous cycle with one random stretch re-walked and re-filled.
+    Returns (slots, pitches) of the new cycle."""
+    # A random 16th j and a half-width k with P(k) = (1-q) q^k, q = evolve_k_ratio
+    # (0.5: k = 0 half the time, 1 a quarter, 2 an eighth, ...).
+    j = int(rng.integers(0, cycle_steps))
+    k = int(rng.geometric(1 - cfg["evolve_k_ratio"])) - 1
+    a, b = max(0, j - k), min(cycle_steps - 1, j + k)
+    stats["evolve_k_total"] += k
+    lo = 0                      # a, moved back to the start of its note or rest
+    for s, L, _ in slots:
+        if s > a:
+            break
+        lo = s if a < s + L else s + L
+    hi = b + 1                  # b, moved on to the end of its note
+    for s, L, _ in slots:
+        if s <= b < s + L:
+            hi = s + L
+            break
+    kept = [(s, L, x) for (s, L, _), x in zip(slots, pitches) if s + L <= lo or s >= hi]
+    assert len(kept) == sum(1 for s, L, _ in slots if not lo <= s < hi), "a note crosses the range"
+    new = rhythm_walk(tables, rng, stats, hi, cycle_steps, "range_end", start=lo)
+    merged = sorted(kept + [(s, L, None) for s, L in new])
+    new_slots = [(s, L, i == len(merged) - 1) for i, (s, L, _) in enumerate(merged)]
+    new_pitches = fill_melody(new_slots, tables, cfg, rng, stats, last,
+                              known=[x for _, _, x in merged])
+    stats["evolve_cycles"] += 1
+    stats["evolve_range_steps"] += hi - lo
+    stats["evolve_notes_removed"] += len(slots) - len(kept)
+    stats["evolve_notes_drawn"] += len(new)
+    return new_slots, new_pitches
+
+
 # --------------------------------------------------------------------------
 # Whole run
 # --------------------------------------------------------------------------
@@ -439,8 +497,12 @@ def generate(cfg, tables):
                 rhythm, slots, cycle_steps = make_rhythm(rhythm_rng(cfg["seed"], m, n))
                 if n == 0:
                     bar = rhythm                  # shown in the report
-            mrng = melody_rng(cfg["seed"], n, m if cfg["melody_seed_by"] == "track_cycle" else None)
-            pitches = fill_melody(slots, tables, cfg, mrng, stats, last)
+            if cfg["evolve"] and n > 0:
+                slots, pitches = evolve_cycle(slots, pitches, cycle_steps, tables, cfg,
+                                              evolve_rng(cfg["seed"], m, n), stats, last)
+            else:
+                mrng = melody_rng(cfg["seed"], n, m if cfg["melody_seed_by"] == "track_cycle" else None)
+                pitches = fill_melody(slots, tables, cfg, mrng, stats, last)
             base = n * cycle_steps
             vrng = velocity_rng(cfg["seed"], m, n)
             velocities = [note_velocity(pos, L, tables, cfg, vrng, stats) for pos, L, _ in slots]

@@ -520,6 +520,42 @@ On `transposed.mid`, velocities run from 5 to 122 (median 79). 33 of the 56
 16-track × 64-cycle N59 run, 99% of notes drew from a (position, length) cell and the
 rest from their position.
 
+### 6e. Evolving cycles (Ken, 2026-11-23)
+
+With `"evolve": true` (only with `form: "walk"`), a track no longer repeats one rhythm
+or draws a whole new melody each cycle. Cycle 0 is made as usual. Every later cycle
+is the **previous cycle with one random stretch re-filled**, so changes pile up:
+
+1. Draw a 16th j at random, uniformly over the cycle, and a half-width k with
+   P(k) = (1 − r) r^k, r = `evolve_k_ratio` (default 0.5). So k = 0 half the time, 1 a
+   quarter, 2 an eighth, and so on (mean 1). The range is a = max(0, j − k) to
+   b = min(last 16th, j + k). (Ken, 2026-11-23. A first version took two uniform random
+   positions as a and b; that changed about 40% of the cycle each time, too much.)
+2. If a lies inside a note or a rest, move it back to the start of that note or rest.
+3. If b lies inside a note, move the range end to that note's end; otherwise the range
+   ends just after b.
+4. Delete the notes in the range and re-walk the rhythm there (section 4), starting as
+   if at the start of a cycle and cutting notes at the range end.
+5. Draw the pitches of the new notes with the backward fill (section 6). The kept notes
+   **after** the range are their context, so the stretch leads into what follows it;
+   nothing ties it to the notes before it. If the range takes in the cycle's last note,
+   the new last note is the end note (`end_note`).
+
+Notes outside the range keep their start, length and pitch. Velocities are still drawn
+every (track, cycle). The random numbers come from a fourth stream, `(4, m, n)`, so
+cycle 0 is identical to the run without `evolve`.
+
+Example (one bar shown, `x` start, `-` held, `.` rest). Previous: `x---x-x-..x-x---`.
+The draw gives j = 7, k = 2, so a = 5, b = 9. Position 5 lies in the note starting at 4, so the range
+starts at 4. Position 9 lies in a rest, so the range ends at 10. Steps 4–9 are re-walked
+(e.g. `x-----` becomes `x-.x--`), and the notes from step 10 on are kept as context.
+
+N45 run (16 × 160 at 96 bpm, seed 45): the range averaged about 4 sixteenths after
+extending to note and rest boundaries, and about 1.3 notes were re-drawn per cycle. The
+changes still accumulate: by cycle 160, about 58% of the bass notes and 96% of the
+melody notes differ from cycle 0. Raising or lowering `evolve_k_ratio` widens or narrows
+the stretch.
+
 ---
 
 ## 7. Random seeds
@@ -531,6 +567,7 @@ All streams come from the one `seed`, using numpy `SeedSequence` spawn keys:
 | rhythm | `SeedSequence(seed, spawn_key=(1, m))` | track m | every cycle of that track |
 | melody | `SeedSequence(seed, spawn_key=(2, n))` | cycle n | cycle n of every track |
 | velocity | `SeedSequence(seed, spawn_key=(3, m, n))` | track m and cycle n | nothing: every track and cycle differs |
+| evolve (section 6e) | `SeedSequence(seed, spawn_key=(4, m, n))` | track m and cycle n | used only with `evolve`, for cycles n ≥ 1 |
 
 So:
 
@@ -600,7 +637,7 @@ python scripts/generate_learned.py config/learned/N59_generate_Aaeolian.json [--
 `seed`, `tempo`, and optionally `max_context` (default 3), `min_context_count` (3),
 `min_position_count` (3), `transition_exponent` and `position_exponent` (0.5 each),
 `chord_progression`, `source_chord` and `end_note` (section 6b), `velocity` (`"tables"`, or a fixed
-1–127) and `min_velocity_count` (3) (section 6c), `drop_starts` (section 6d), `track_name_prefix` (the config name's first
+1–127) and `min_velocity_count` (3) (section 6c), `drop_starts` (section 6d), `evolve` (section 6e), `rhythm_seed_by` and `melody_seed_by` (section 7), `track_name_prefix` (the config name's first
 `_` part, e.g. `N59`) and `write_mid` (true). The grid, key and `base_pitch` come from
 the tables file. Output files are named `<config stem>_s<seed>_<timestamp>`.
 
