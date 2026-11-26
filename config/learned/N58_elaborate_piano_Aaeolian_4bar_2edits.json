@@ -1,0 +1,34 @@
+{
+  "description": "N58 piano lines by elaboration (docs/learned_workflow.md section 6f), driven by the N58 'Piano (D)' 4-bar tables (A aeolian over Am7). Each track starts from one held pitch, drawn per track from the input's pitches at the final note's position, plus a last note of the same pitch on beat 3 of bar 4, held 2 beats, whose rhythm is frozen but whose pitch evolves; each cycle adds 2 edits (split, join, new note, re-pitch, note to rest). Cycle order reversed: busy -> one held note, so the tracks end on a chord. 16 tracks x 320 bars (80 cycles). Variant of N58_elaborate_piano_Aaeolian_4bar with 2 edits per cycle (Ken, 2026-11-26: 1, 1, 2, 4 edits for 1, 2, 4, 8 bars).",
+
+  "method": "elaborate",
+  "tables": "data/tables/N58_piano_Aaeolian_4bar.json",
+  "output_dir": "/mnt/f/Cubase Projects/N58",
+
+  "num_bars": 320,
+  "num_tracks": 16,
+  "seed": 58,
+  "tempo": 96,
+
+  "changes_per_cycle": 2,
+  "edit_rules": "input_states",
+  "change_weight": "uniform",
+  "reverse_cycle_order": true,
+  "final_note": {"bar": 4, "step": 9, "length": 8},
+  "final_note_pitch": "evolve",
+  "initial_pitch": "final_position",
+  "change_exponent": 1,
+  "rest_exponent": 2,
+  "new_note_length": "lengths",
+
+  "max_context": 3,
+  "min_context_count": 3,
+  "min_position_count": 3,
+  "transition_exponent": 0.5,
+  "position_exponent": 0.5,
+
+  "velocity": "tables",
+  "min_velocity_count": 3,
+  "track_name_prefix": "N58 elab",
+  "write_mid": false
+}
