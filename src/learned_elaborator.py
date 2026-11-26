@@ -33,7 +33,9 @@ import learned_generator as lg
 
 ELABORATE_STREAM = 7    # SeedSequence spawn-key tag: (7, track)
 
-REQUIRED = ("tables", "output_dir", "num_cycles", "num_tracks", "seed", "tempo")
+# Plus exactly one of num_bars (track length in bars, a multiple of the cycle length)
+# and num_cycles (the older key).
+REQUIRED = ("tables", "output_dir", "num_tracks", "seed", "tempo")
 
 
 def load_config(path):
@@ -47,6 +49,8 @@ def load_config(path):
     missing = [k for k in REQUIRED if k not in cfg]
     if missing:
         fail(f"missing required keys: {missing}")
+    if ("num_bars" in cfg) == ("num_cycles" in cfg):
+        fail("give exactly one of num_bars (track length in bars) and num_cycles")
     defaults = {
         "changes_per_cycle": 1,
         # true: busy -> one held note (the old default); false: the other way;
@@ -80,12 +84,14 @@ def load_config(path):
     }
     for k, v in defaults.items():
         cfg.setdefault(k, v)
-    known = set(REQUIRED) | set(defaults) | {"method", "description"}
+    known = set(REQUIRED) | set(defaults) | {"method", "description", "num_bars", "num_cycles"}
     unknown = sorted(set(cfg) - known)
     if unknown:
         fail(f"unknown keys: {unknown}")
 
-    for k in ("num_cycles", "num_tracks", "max_context", "changes_per_cycle"):
+    for k in ("num_bars", "num_cycles", "num_tracks", "max_context", "changes_per_cycle"):
+        if k not in cfg:
+            continue
         if isinstance(cfg[k], bool) or not isinstance(cfg[k], int) or cfg[k] < 1:
             fail(f"{k} must be a positive int (got {cfg[k]!r})")
     if isinstance(cfg["seed"], bool) or not isinstance(cfg["seed"], int) or cfg["seed"] < 0:
@@ -111,6 +117,19 @@ def load_config(path):
                                   for x in fn.values())):
         fail(f"final_note must be {{bar, step, length}}, positive ints counted from 1 (got {fn!r})")
     return cfg
+
+
+def resolve_num_cycles(cfg, tables, path):
+    """Set cfg["num_cycles"] from num_bars and the tables' cycle length (a config
+    gives one or the other), so a track has the same number of bars whatever the
+    cycle length."""
+    if "num_bars" not in cfg:
+        return
+    bpc = tables["bars_per_cycle"]
+    if cfg["num_bars"] % bpc:
+        raise ValueError(f"Invalid elaboration config {path}: num_bars {cfg['num_bars']} is not "
+                         f"a multiple of the cycle length ({bpc} bars, from {cfg['tables']})")
+    cfg["num_cycles"] = cfg["num_bars"] // bpc
 
 
 # --------------------------------------------------------------------------

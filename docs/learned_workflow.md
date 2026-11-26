@@ -661,6 +661,15 @@ bars, so the 8-bar tracks now reach the input's density (41.7). Repeated pitches
 to the input's 35%. **A** is commoner than in the input, and **D** and **E** rarer,
 because splits and joins carry the starting A along until re-pitches change it.
 
+**Track length in bars: `num_bars`** (Ken, 2026-11-26). An elaborate config gives
+exactly one of `num_bars` and `num_cycles`. `num_bars` is the track length in bars, so
+configs with different cycle lengths can produce tracks of the same length; it must be a
+multiple of the tables' `bars_per_cycle`, and `num_cycles` = `num_bars` / `bars_per_cycle`.
+`num_cycles` still works, so older configs reproduce their runs. The 1-bar config now uses
+`num_bars: 400` (400 cycles, so the tracks match the length of N58's input); the 2-, 4-
+and 8-bar configs still give `num_cycles: 200`. In the 400-bar 1-bar run (seed 58) the
+first (busiest) cycles average 6.7 notes against the input's 5.2, as at 200 cycles.
+
 ---
 
 ## 7. Random seeds

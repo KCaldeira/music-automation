@@ -140,6 +140,7 @@ def main_elaborate(args):
     if args.seed is not None:
         cfg["seed"] = args.seed
     tables = lg.load_tables(cfg["tables"])
+    le.resolve_num_cycles(cfg, tables, args.config_path)
     tracks, cycle_steps, stats = le.generate(cfg, tables)
 
     dpb = tables["divisions_per_beat"]
