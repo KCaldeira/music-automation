@@ -1,7 +1,7 @@
 {
   "format": "music-automation learned tables v1",
-  "created": "2026-11-25",
-  "source_midi": "data/input/N59/Piano (D).mid",
+  "created": "2026-11-26",
+  "source_midi": "data/input/N58/Piano (D).mid",
   "source_tempo_bpm": 93.191,
   "source_time_signature": "4/4",
   "root": "A",

@@ -78,6 +78,10 @@ def load_generation_config(path):
     cfg.setdefault("evolve", False)
     # Half-width k of the changed stretch: P(k) = (1 - r) r^k; 0.5 halves each step.
     cfg.setdefault("evolve_k_ratio", 0.5)
+    # Fixed last note for form "walk": {"bar": b, "step": s, "length": L} puts the end
+    # note at grid step s (from 1) of bar b (from 1) of the cycle, held L grid steps.
+    # The walk fills the cycle up to that start; None = the walk's own last note.
+    cfg.setdefault("final_note", None)
     for k, allowed in (("rhythm_seed_by", ("track", "cycle", "track_cycle")),
                        ("melody_seed_by", ("cycle", "track", "track_cycle"))):
         if cfg[k] not in allowed:
@@ -135,6 +139,15 @@ def load_generation_config(path):
         fail(f"evolve_k_ratio must be a number in [0, 1) (got {r!r})")
     if cfg["evolve"] and bars is not None:
         fail("evolve needs form 'walk' (a half-bar form reuses one bar in several places)")
+    fn = cfg["final_note"]
+    if fn is not None:
+        if bars is not None:
+            fail("final_note needs form 'walk'")
+        if cfg["evolve"]:
+            fail("final_note cannot be combined with evolve")
+        if (not isinstance(fn, dict) or set(fn) != {"bar", "step", "length"}
+                or any(isinstance(v, bool) or not isinstance(v, int) or v < 1 for v in fn.values())):
+            fail(f"final_note must be {{bar, step, length}}, positive ints counted from 1 (got {fn!r})")
     if cfg["evolve"] and (cfg["rhythm_seed_by"], cfg["melody_seed_by"]) != ("track", "cycle"):
         fail("evolve needs the default seeds (rhythm_seed_by 'track', melody_seed_by 'cycle')")
     if not isinstance(cfg["drop_starts"], list):
@@ -483,12 +496,25 @@ def generate(cfg, tables):
                          f"or set a fixed 'velocity' in the config")
     stats = Counter()
     last = end_step(cfg, tables)
+    final = None                              # (start, length) of a fixed last note
+    if cfg["final_note"] is not None:
+        fn = cfg["final_note"]
+        start = (fn["bar"] - 1) * steps_per_bar + fn["step"] - 1
+        cycle_steps = tables["bars_per_cycle"] * steps_per_bar
+        if fn["step"] > steps_per_bar or start + fn["length"] > cycle_steps:
+            raise ValueError(f"final_note {fn!r} does not fit in a cycle of "
+                             f"{tables['bars_per_cycle']} bars of {steps_per_bar} grid steps")
+        final = (start, fn["length"])
     tracks = []
     def make_rhythm(rng):
         """(rhythm, slots, cycle_steps) from one rhythm stream."""
         if cfg["form_bars"] is None:          # "walk": the whole cycle at once
             cycle_steps = tables["bars_per_cycle"] * steps_per_bar
-            bar = rhythm_walk(tables, rng, stats, cycle_steps, cycle_steps, "cycle_end")
+            if final is None:
+                bar = rhythm_walk(tables, rng, stats, cycle_steps, cycle_steps, "cycle_end")
+            else:                             # walk up to the fixed last note, then add it
+                bar = rhythm_walk(tables, rng, stats, final[0], cycle_steps, "final_note")
+                bar.append(final)
             slots = [(s, L, i == len(bar) - 1) for i, (s, L) in enumerate(bar)]
         else:
             bar = rhythm_walk(tables, rng, stats)

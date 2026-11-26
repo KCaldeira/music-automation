@@ -1,0 +1,27 @@
+{
+  "description": "N58 piano lines from the N58 'Piano (D)' 1-bar tables (A aeolian over Am7). The rhythm is walked over the whole 1-bar cycle (no half-bar form) up to a fixed last note on the 2nd 8th of beat 4, held an 8th; that note's pitch is drawn from the tables. Rhythm seed by track (one rhythm per track), melody seed by cycle (shared by all tracks). 16 tracks x 400 cycles = 400 bars. No chord shifting or filtering.",
+
+  "tables": "data/tables/N58_piano_Aaeolian_1bar.json",
+  "output_dir": "/mnt/f/Cubase Projects/N58",
+
+  "form": "walk",
+  "final_note": {"bar": 1, "step": 15, "length": 2},
+  "end_note": "sampled",
+  "num_cycles": 400,
+  "num_tracks": 16,
+  "seed": 58,
+  "rhythm_seed_by": "track",
+  "melody_seed_by": "cycle",
+  "tempo": 93.191,
+
+  "max_context": 3,
+  "min_context_count": 3,
+  "min_position_count": 3,
+  "transition_exponent": 0.5,
+  "position_exponent": 0.5,
+
+  "velocity": "tables",
+  "min_velocity_count": 3,
+  "track_name_prefix": "N58 pno",
+  "write_mid": false
+}

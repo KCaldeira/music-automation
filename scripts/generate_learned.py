@@ -82,6 +82,9 @@ def main():
               if cfg["end_note"] == "sampled" else f"ending on {next(iter(ends))}")
     print(f"Form    {cfg['form']}  ({cycle_steps // steps_per_bar} bars), {cfg['num_cycles']} cycles, "
           f"{cfg['tempo']} bpm, seed {cfg['seed']}, {ending}")
+    if cfg["final_note"]:
+        fn = cfg["final_note"]
+        print(f"Final   last note fixed at bar {fn['bar']}, 16th {fn['step']}, held {fn['length']} grid steps")
     walk = cfg["form_bars"] is None
     per_cycle = cfg["rhythm_seed_by"] != "track" or cfg["evolve"]
     print(f"Seeds   rhythm by {cfg['rhythm_seed_by'].replace('_', ' and ')}, "

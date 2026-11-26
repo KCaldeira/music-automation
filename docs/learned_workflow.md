@@ -364,6 +364,27 @@ Am7, 2-bar cycles, `period` 32), each with its own generation config
 (`config/learned/N45_generate_{bass,melody}_Aaeolian.json`), with no chord step and no
 filter.
 
+**A fixed last note** (`final_note`; Ken, 2026-11-26). With `form: "walk"`, the config
+key `final_note: {"bar": b, "step": s, "length": L}` puts the cycle's last note at
+16th `s` of bar `b` (both counted from 1), held `L` grid steps. The walk then runs only
+up to that note's start, and a walked note that would cross it is cut there (counted as
+`notes_cut_at_final_note`). Its pitch still comes from `end_note`, at that position.
+Without `final_note`, the walk's own last note is the end note. It cannot be combined
+with `evolve`. First used for N58 "Piano (D)" (400 bars, 93.191 bpm), analysed as A
+aeolian / Am7 with `base_pitch` 69, as 1-, 2-, 4- and 8-bar tables (`period` 16, 32, 64,
+128), in `config/learned/N58_generate_piano_Aaeolian_{1,2,4,8}bar.json` (16 tracks ×
+400 bars each, `end_note: "sampled"`, default seeds, seed 58, no chord step or filter):
+
+| Cycle | Last note | Held |
+|---|---|---|
+| 8 bars | bar 8, beat 1 (`step` 1) | 1 bar (16) |
+| 4 bars | bar 4, beat 3 (`step` 9) | 2 beats (8) |
+| 2 bars | bar 2, beat 4 (`step` 13) | 1 beat (4) |
+| 1 bar | the second 8th of beat 4 (`step` 15) | half a beat (2) |
+
+At 8 bars (`period` 128), 33 of the 128 positions have fewer than 3 notes, so the
+position tables there are thin.
+
 ---
 
 ## 6. Stage 2b: the melody, filled backwards (generate, per cycle)
@@ -597,11 +618,8 @@ range of notes per cycle. First used in
 differ only in pitch. Each track reuses one melody stream, but because the slots change
 every cycle, its melody still changes. These keys use their own tags (5 and 6), so the
 streams are unrelated to the default ones. `evolve` still needs the default seeds.
-First used for N59 "Piano (D)" (400 bars, 93.191 bpm), analysed as A aeolian / Am7 with
-`base_pitch` 69, into 2-bar (`period` 32) and 4-bar (`period` 64) tables:
-`config/learned/N59_generate_piano_Aaeolian_{2,4}bar_rhythm-by-{track_melody-by-cycle,cycle_melody-by-track}.json`,
-each 16 tracks × 400 bars, `form: "walk"`, `end_note: "sampled"`, no chord step or
-filter, seed 59.
+Tried once on the N58 "Piano (D)" 2- and 4-bar tables (2026-11-25, then filed by
+mistake as N59) and then dropped; no config is kept.
 
 ---
 
