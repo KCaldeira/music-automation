@@ -577,6 +577,90 @@ changes still accumulate: by cycle 160, about 58% of the bass notes and 96% of t
 melody notes differ from cycle 0. Raising or lowering `evolve_k_ratio` widens or narrows
 the stretch.
 
+### 6f. Elaboration driven by the tables (Ken, 2026-11-26)
+
+A separate method, selected with `"method": "elaborate"` in the generation config
+(`src/learned_elaborator.py`; `scripts/generate_learned.py` runs it). It is the June
+**elaboration workflow** (README, "Elaboration workflow"; `src/elaborator.py`) with its
+hand-set weights replaced by the tables. Ken found the old process sounded better than
+`evolve` (6e).
+
+**Process.** The cycle is a grid of 16ths, each a note start, held, or silent; pitches are
+scale steps. Cycle 0 is the tonic (step 0, A4 for N58) held over the whole cycle. With
+`final_note` (as in section 5), it is held up to the final note, which is then the tonic
+again; the final note and everything after it are **frozen**. Each later cycle is the
+previous one plus `changes_per_cycle` edits, so the changes accumulate. By default
+(`reverse_cycle_order: true`) the cycle order is then reversed, so a track runs from busy
+to the single held note; `false` keeps the order, and `"both"` writes each track twice
+(the reversed copy gets a `C` suffix).
+
+**One edit** (`edit_rules: "input_states"`, the default). Pick a 16th d (uniformly over
+the unfrozen 16ths: `change_weight: "uniform"`). Draw a **target state** for d from the
+input's frequencies at that position: note start `n_start`, held `n_held`, silent
+`n_free − n_start` (each over the total). Then make the edit that reaches it:
+
+| Now \ target | Start | Held | Silent |
+|---|---|---|---|
+| Note start | **re-pitch** (must differ) | **join** into the note before (if one sounds at d−1) | the whole note becomes a **rest** |
+| Held | **split**: re-sound the same pitch from d | nothing | **cut**: rest from d to the note's end |
+| Rest | **new note**: pitch drawn, length from `lengths`, cut at the next note | **extend** the note before over d (if one sounds at d−1) | nothing |
+
+If nothing changes, d and the target are drawn again, so each cycle differs from the one
+before by exactly `changes_per_cycle` real edits. Because each position is pushed toward
+its input mix of starts, holds and silences, the busy cycles settle near the input's
+density.
+
+**Why not the old rules as they were.** The first version mapped the old vectors onto the
+tables the way the old configs derived them (start = `p_start`, change weight ∝ `p_start`,
+rest = (1 − start)²). Those rules can split and extend notes but never join a note into
+the one before, and the rest chance is near 0 on strong 16ths, so notes piled up: the
+busy cycles had about twice the input's notes (2-bar: 19 against 10.4; 4-bar: 33 against
+21), mostly runs of 16ths. Weighting the edit position by `n_start` instead barely helped.
+The old rules remain available as `edit_rules: "old"` (with `change_weight` `"p_start"`
+or `"starts"`, `change_exponent`, `rest_exponent` and `new_note_length`).
+
+**Pitch** (`choose_pitch`, for re-pitches and new notes). The note before (`prev`) and the
+notes after (`f1, f2, …`), within the cycle, are both used. In order, the first context
+whose total weight is ≥ `min_context_count` is used:
+
+1. **two-sided**, `prev → p → f1 … f(k−1)`, read as `transitions[k][(p, f1…)][prev]`,
+   for k = `max_context` down to 2;
+2. **backward**, `p → f1 … fk` (the rule of section 6), k = `max_context` down to 1;
+3. **forward**, `prev → p` (`transitions[1][(p,)][prev]`);
+4. the overall pitch frequency.
+
+Each is multiplied by the position table, with the usual exponents (section 6). A
+re-pitch excludes the current pitch.
+
+**Velocities** are drawn per note for each (track, cycle), as in section 6c. **Seeds:** one
+stream per track, `SeedSequence(seed, spawn_key=(7, m))`.
+
+**Tables.** The method needs `onsets.n_held`, the number of times each position was
+covered by a held note. The analysis writes it since 2026-11-26; older tables need
+re-running.
+
+**First runs** (N58 "Piano (D)", `config/learned/N58_elaborate_piano_Aaeolian_{1,2,4,8}bar.json`;
+16 tracks × 400 bars, one edit per cycle, seed 58, the final notes of section 5).
+Average notes per cycle against the input's average:
+
+| Cycle | Input | Busiest (start of track) | Middle | 90% through | End |
+|---|---|---|---|---|---|
+| 1 bar | 5.2 | 6.7 | 6.6 | 6.6 | 2 |
+| 2 bars | 10.4 | 11.6 | 12.2 | 9.2 | 2 |
+| 4 bars | 20.9 | 22.4 | 18.9 | 8.2 | 2 |
+| 8 bars | 41.7 | 25.2 | 16.2 | 5.0 | 2 |
+
+With one edit per cycle, the 1- and 2-bar tracks reach the input's density early and
+simplify only near the end. The 8-bar tracks, at 50 cycles, never reach it. Raising
+`changes_per_cycle` for long cycles would fix that.
+
+**Since 2026-11-26 every elaborate config runs 200 cycles** (Ken: more time to develop),
+so the tracks are 200, 400, 800 and 1,600 bars long, at 96 bpm (N58's tempo from then
+on). The busiest cycles then average 6.6, 11.6, 22.9 and 41.4 notes for 1, 2, 4 and 8
+bars, so the 8-bar tracks now reach the input's density (41.7). Repeated pitches (35–44%) are close
+to the input's 35%. **A** is commoner than in the input, and **D** and **E** rarer,
+because splits and joins carry the starting A along until re-pitches change it.
+
 ---
 
 ## 7. Random seeds
@@ -652,6 +736,7 @@ the full writer, a small file with one track and a few notes should be tested wi
 | `src/learner.py` | Config check, cleaning, scale steps, tables T1–T4, tables-file writer | done |
 | `scripts/generate_learned.py` | `generate`: config + tables → `.dawproject` (+ `.mid`), prints a report | done |
 | `src/learned_generator.py` | Tables check, rhythm walk, form, backward fill | done |
+| `src/learned_elaborator.py` | Elaboration method (section 6f); `generate_learned.py` uses it when the config has `"method": "elaborate"` | done |
 | `src/dawproject_writer.py` | Note-clip DAWproject writer, schema-checked against `schema/dawproject/Project.xsd` | done; Cubase import not yet tested |
 | `config/learned/` | `N59_analyze_transposed_Aaeolian.json`, `N59_generate_Aaeolian.json` | |
 

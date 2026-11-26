@@ -12,7 +12,7 @@
   "seed": 58,
   "rhythm_seed_by": "track",
   "melody_seed_by": "cycle",
-  "tempo": 93.191,
+  "tempo": 96,
 
   "max_context": 3,
   "min_context_count": 3,

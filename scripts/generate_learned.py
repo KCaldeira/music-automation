@@ -10,6 +10,7 @@ into output_dir, named <config stem>_s<seed>_<timestamp>.
 
 import argparse
 from collections import Counter
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import dawproject_writer
+import learned_elaborator as le
 import learned_generator as lg
 import midi_writer
 
@@ -40,6 +42,8 @@ def main():
     parser.add_argument("--seed", type=int, default=None, help="overrides 'seed' in the config")
     args = parser.parse_args()
 
+    if json.loads(Path(args.config_path).read_text()).get("method") == "elaborate":
+        return main_elaborate(args)
     cfg = lg.load_generation_config(args.config_path)
     if args.seed is not None:
         cfg["seed"] = args.seed
@@ -127,6 +131,65 @@ def main():
         print(f"Dropped notes starting on steps {w['from']}-{w['to']} of bar {w['bar']}", end="; ")
     if cfg["drop_starts"]:
         print(f"{dropped} notes removed")
+    print(f"Wrote   {daw_path}" + (f"\n        {out_dir / out_stem}.mid" if cfg["write_mid"] else ""))
+
+
+def main_elaborate(args):
+    """Section 6f: the elaboration method, driven by the tables."""
+    cfg = le.load_config(args.config_path)
+    if args.seed is not None:
+        cfg["seed"] = args.seed
+    tables = lg.load_tables(cfg["tables"])
+    tracks, cycle_steps, stats = le.generate(cfg, tables)
+
+    dpb = tables["divisions_per_beat"]
+    steps_per_bar = dpb * tables["beats_per_bar"]
+    stem = Path(args.config_path).stem
+    out_stem = f"{stem}_s{cfg['seed']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    out_dir = Path(cfg["output_dir"])
+    names = [f"{cfg['track_name_prefix']} t{t['name_suffix']}" for t in tracks]
+    total_beats = cfg["num_cycles"] * cycle_steps / dpb
+    daw_tracks = [(name, total_beats, [(s / dpb, L / dpb, p, v) for s, L, p, v in t["notes"]])
+                  for name, t in zip(names, tracks)]
+    daw_path = out_dir / f"{out_stem}.dawproject"
+    key = f"{tables['root']} {tables['mode'] or tables['scale']}"
+    dawproject_writer.write_dawproject(
+        daw_path, daw_tracks, cfg["tempo"], tables["beats_per_bar"], 4, title=out_stem,
+        comment=(f"Learned elaboration: {len(tracks)} tracks x {cfg['num_cycles']} cycles, "
+                 f"{cfg['changes_per_cycle']} edit(s) per cycle, seed {cfg['seed']}, "
+                 f"tables {cfg['tables']} ({key})"))
+    if cfg["write_mid"]:
+        ticks = midi_writer.PPQN // dpb
+        midi_tracks = [[midi_writer.NoteEvent(s * ticks, L * ticks, p, v) for s, L, p, v in t["notes"]]
+                       for t in tracks]
+        midi_writer.write_midi(midi_tracks, str(out_dir / f"{out_stem}.mid"), names)
+
+    # Report
+    bars = cycle_steps // steps_per_bar
+    order = {True: "busy -> one held note", False: "one held note -> busy",
+             "both": "both orders (C = busy -> one held note)"}[cfg["reverse_cycle_order"]]
+    print(f"Tables  {cfg['tables']}  ({key}, chord {tables['chord']}, base_pitch {tables['base_pitch']})")
+    print(f"Method  elaborate: {bars}-bar cycles, {cfg['num_cycles']} cycles, "
+          f"{cfg['changes_per_cycle']} edit(s) per cycle, {order}; {cfg['tempo']} bpm, seed {cfg['seed']}")
+    if cfg["final_note"]:
+        fn = cfg["final_note"]
+        print(f"Final   frozen last note at bar {fn['bar']}, 16th {fn['step']}, held {fn['length']} grid steps")
+    marks = [0, 0.25, 0.5, 0.75, 1]
+    print("Notes per cycle along each track (at " + ", ".join(f"{m:.0%}" for m in marks)
+          + " of the track), then the rhythm of its busiest cycle (x = start, - = held, . = rest):")
+    width = max(8, max(map(len, names)))
+    for name, t in zip(names, tracks):
+        c = t["counts"]
+        curve = " ".join(f"{c[round(m * (len(c) - 1))]:3d}" for m in marks)
+        print(f"  {name:{width}s} {curve}   {bar_picture(t['busiest'], cycle_steps, steps_per_bar)}")
+    edits = {k: stats.pop(k) for k in [k for k in stats if k.startswith("edit_")]}
+    print("Edits   " + ", ".join(f"{k[5:]} {v}" for k, v in sorted(edits.items())))
+    pitch = {k: stats.pop(k) for k in [k for k in stats if k.startswith("pitch_")]}
+    print("Pitch   " + ", ".join(f"{k[6:]} {v}" for k, v in sorted(pitch.items())))
+    pcs = Counter(PC[p % 12] for t in tracks[:cfg["num_tracks"]] for _, _, p, _ in t["notes"])
+    print("Notes   by pitch class: " + ", ".join(f"{k} {v}" for k, v in pcs.most_common()))
+    if stats:
+        print("Other   " + ", ".join(f"{k} {v}" for k, v in sorted(stats.items())))
     print(f"Wrote   {daw_path}" + (f"\n        {out_dir / out_stem}.mid" if cfg["write_mid"] else ""))
 
 

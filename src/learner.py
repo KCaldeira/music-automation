@@ -234,9 +234,13 @@ def build_tables(notes, steps, cfg):
             skipped.update(run)
         run = []
     starts = {s for s, *_ in notes}
-    n_free, n_start = [0] * period, [0] * period
+    n_free, n_start, n_held = [0] * period, [0] * period, [0] * period
     for t in range(timeline):
-        if t not in held and t // steps_per_bar not in skipped:
+        if t // steps_per_bar in skipped:
+            continue
+        if t in held:
+            n_held[t % period] += 1
+        else:
             n_free[t % period] += 1
             n_start[t % period] += t in starts
     p_start = [round(n_start[i] / n_free[i], 4) if n_free[i] else 0 for i in range(period)]
@@ -262,7 +266,7 @@ def build_tables(notes, steps, cfg):
         transitions[k] = table
 
     return {
-        "onsets": {"p_start": p_start, "n_start": n_start, "n_free": n_free},
+        "onsets": {"p_start": p_start, "n_start": n_start, "n_free": n_free, "n_held": n_held},
         "lengths": lengths,
         "position_pitch": position_pitch,
         "transitions": transitions,
@@ -361,7 +365,8 @@ def format_tables(doc):
 
     on = doc["onsets"]
     out.append('  "onsets": {')
-    out.append(_rows([(k, _inline(on[k])) for k in ("p_start", "n_start", "n_free")], 4))
+    out.append(_rows([(k, _inline(on[k])) for k in ("p_start", "n_start", "n_free", "n_held")
+                      if k in on], 4))
     out.append("  },")
     out.append("")
 
