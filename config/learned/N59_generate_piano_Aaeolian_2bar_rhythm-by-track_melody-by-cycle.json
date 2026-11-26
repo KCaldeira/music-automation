@@ -1,0 +1,26 @@
+{
+  "description": "N59 piano lines from the N59 'Piano (D)' 2-bar tables (A aeolian over Am7). The rhythm is walked over the whole 2-bar cycle (no half-bar form); the last note of each cycle is drawn from the tables. Rhythm seed varies by track only, melody seed by cycle only. 16 tracks x 200 cycles = 400 bars. No chord shifting or filtering.",
+
+  "tables": "data/tables/N59_piano_Aaeolian_2bar.json",
+  "output_dir": "/mnt/f/Cubase Projects/N59",
+
+  "form": "walk",
+  "end_note": "sampled",
+  "num_cycles": 200,
+  "num_tracks": 16,
+  "seed": 59,
+  "rhythm_seed_by": "track",
+  "melody_seed_by": "cycle",
+  "tempo": 93.191,
+
+  "max_context": 3,
+  "min_context_count": 3,
+  "min_position_count": 3,
+  "transition_exponent": 0.5,
+  "position_exponent": 0.5,
+
+  "velocity": "tables",
+  "min_velocity_count": 3,
+  "track_name_prefix": "N59 pno",
+  "write_mid": false
+}

@@ -83,7 +83,7 @@ def main():
     print(f"Form    {cfg['form']}  ({cycle_steps // steps_per_bar} bars), {cfg['num_cycles']} cycles, "
           f"{cfg['tempo']} bpm, seed {cfg['seed']}, {ending}")
     walk = cfg["form_bars"] is None
-    per_cycle = cfg["rhythm_seed_by"] == "track_cycle" or cfg["evolve"]
+    per_cycle = cfg["rhythm_seed_by"] != "track" or cfg["evolve"]
     print(f"Seeds   rhythm by {cfg['rhythm_seed_by'].replace('_', ' and ')}, "
           f"melody by {cfg['melody_seed_by'].replace('_', ' and ')}")
     print("Rhythms (x = note start, - = held, . = rest; " + ("bars" if walk else "A | B")

@@ -20,6 +20,7 @@ import chords
 from learner import TABLES_FORMAT
 
 RHYTHM_STREAM, MELODY_STREAM, VELOCITY_STREAM, EVOLVE_STREAM = 1, 2, 3, 4   # SeedSequence spawn-key tags
+RHYTHM_BY_CYCLE_STREAM, MELODY_BY_TRACK_STREAM = 5, 6   # rhythm_seed_by "cycle", melody_seed_by "track"
 
 
 # --------------------------------------------------------------------------
@@ -67,7 +68,9 @@ def load_generation_config(path):
     cfg.setdefault("drop_starts", [])
     # What the random streams are keyed by (section 7). Defaults: one rhythm per track,
     # repeated every cycle; one melody per cycle, shared by all tracks. "track_cycle"
-    # gives every (track, cycle) its own rhythm or melody.
+    # gives every (track, cycle) its own rhythm or melody. The roles can also be
+    # swapped: rhythm_seed_by "cycle" (one rhythm per cycle, shared by all tracks) and
+    # melody_seed_by "track" (one melody stream per track, reused every cycle).
     cfg.setdefault("rhythm_seed_by", "track")
     cfg.setdefault("melody_seed_by", "cycle")
     # Evolve (section 6e): each cycle after the first is the previous cycle with one
@@ -75,8 +78,8 @@ def load_generation_config(path):
     cfg.setdefault("evolve", False)
     # Half-width k of the changed stretch: P(k) = (1 - r) r^k; 0.5 halves each step.
     cfg.setdefault("evolve_k_ratio", 0.5)
-    for k, allowed in (("rhythm_seed_by", ("track", "track_cycle")),
-                       ("melody_seed_by", ("cycle", "track_cycle"))):
+    for k, allowed in (("rhythm_seed_by", ("track", "cycle", "track_cycle")),
+                       ("melody_seed_by", ("cycle", "track", "track_cycle"))):
         if cfg[k] not in allowed:
             raise ValueError(f"Invalid generation config {path}: {k} must be one of "
                              f"{allowed} (got {cfg[k]!r})")
@@ -132,8 +135,8 @@ def load_generation_config(path):
         fail(f"evolve_k_ratio must be a number in [0, 1) (got {r!r})")
     if cfg["evolve"] and bars is not None:
         fail("evolve needs form 'walk' (a half-bar form reuses one bar in several places)")
-    if cfg["evolve"] and "track_cycle" in (cfg["rhythm_seed_by"], cfg["melody_seed_by"]):
-        fail("evolve cannot be combined with rhythm_seed_by/melody_seed_by 'track_cycle'")
+    if cfg["evolve"] and (cfg["rhythm_seed_by"], cfg["melody_seed_by"]) != ("track", "cycle"):
+        fail("evolve needs the default seeds (rhythm_seed_by 'track', melody_seed_by 'cycle')")
     if not isinstance(cfg["drop_starts"], list):
         fail("drop_starts must be a list of {bar, from, to}")
     for w in cfg["drop_starts"]:
@@ -251,16 +254,21 @@ def step_to_midi(step, tables):
 # Random streams (section 7)
 # --------------------------------------------------------------------------
 
-def rhythm_rng(seed, track, cycle=None):
-    """Keyed by track; also by cycle when rhythm_seed_by is "track_cycle"."""
-    key = (RHYTHM_STREAM, track) if cycle is None else (RHYTHM_STREAM, track, cycle)
+def rhythm_rng(seed, track, cycle, by="track"):
+    """rhythm_seed_by "track": keyed by track only (one rhythm, repeated every cycle);
+    "cycle": by cycle only (shared by all tracks); "track_cycle": by both."""
+    key = {"track": (RHYTHM_STREAM, track),
+           "cycle": (RHYTHM_BY_CYCLE_STREAM, cycle),
+           "track_cycle": (RHYTHM_STREAM, track, cycle)}[by]
     return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=key))
 
 
-def melody_rng(seed, cycle, track=None):
-    """Keyed by cycle (shared by all tracks); also by track when melody_seed_by is
-    "track_cycle"."""
-    key = (MELODY_STREAM, cycle) if track is None else (MELODY_STREAM, track, cycle)
+def melody_rng(seed, cycle, track, by="cycle"):
+    """melody_seed_by "cycle": keyed by cycle only (shared by all tracks); "track": by
+    track only (the same random numbers every cycle of a track); "track_cycle": by both."""
+    key = {"cycle": (MELODY_STREAM, cycle),
+           "track": (MELODY_BY_TRACK_STREAM, track),
+           "track_cycle": (MELODY_STREAM, track, cycle)}[by]
     return np.random.default_rng(np.random.SeedSequence(seed, spawn_key=key))
 
 
@@ -487,21 +495,21 @@ def generate(cfg, tables):
             slots, cycle_steps = cycle_slots(bar, cfg["form_bars"], tables)
         return bar, slots, cycle_steps
 
-    per_cycle_rhythm = cfg["rhythm_seed_by"] == "track_cycle"
+    per_cycle_rhythm = cfg["rhythm_seed_by"] != "track"
     for m in range(cfg["num_tracks"]):
         if not per_cycle_rhythm:
-            bar, slots, cycle_steps = make_rhythm(rhythm_rng(cfg["seed"], m))
+            bar, slots, cycle_steps = make_rhythm(rhythm_rng(cfg["seed"], m, None, "track"))
         notes, counts = [], []
         for n in range(cfg["num_cycles"]):
             if per_cycle_rhythm:
-                rhythm, slots, cycle_steps = make_rhythm(rhythm_rng(cfg["seed"], m, n))
+                rhythm, slots, cycle_steps = make_rhythm(rhythm_rng(cfg["seed"], m, n, cfg["rhythm_seed_by"]))
                 if n == 0:
                     bar = rhythm                  # shown in the report
             if cfg["evolve"] and n > 0:
                 slots, pitches = evolve_cycle(slots, pitches, cycle_steps, tables, cfg,
                                               evolve_rng(cfg["seed"], m, n), stats, last)
             else:
-                mrng = melody_rng(cfg["seed"], n, m if cfg["melody_seed_by"] == "track_cycle" else None)
+                mrng = melody_rng(cfg["seed"], n, m, cfg["melody_seed_by"])
                 pitches = fill_melody(slots, tables, cfg, mrng, stats, last)
             base = n * cycle_steps
             vrng = velocity_rng(cfg["seed"], m, n)

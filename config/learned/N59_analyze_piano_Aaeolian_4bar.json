@@ -1,0 +1,20 @@
+{
+  "description": "Learned-workflow tables for N59, 'Piano (D)' line, A4-based, read as A aeolian over Am7, 16th-quantized, 4-bar cycles and 4-bar (64-step) position tables. Source: F:\\Cubase Projects\\N59\\Piano (D).mid (400 bars, 93.191 bpm).",
+
+  "input_midi": "data/input/N59/Piano (D).mid",
+  "output_path": "data/tables/N59_piano_Aaeolian_4bar.json",
+
+  "root": "A",
+  "mode": "aeolian",
+  "chord": "Am7",
+  "base_pitch": 69,
+
+  "divisions_per_beat": 4,
+  "beats_per_bar": 4,
+  "bars_per_cycle": 4,
+  "input_quantization": "1/16",
+
+  "period": 64,
+  "snap_priority": [0, 2, 4, 5],
+  "max_context": 3
+}

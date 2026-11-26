@@ -582,15 +582,26 @@ So:
 **Varying everything per cycle** (Ken, 2026-11-23). Two optional config keys change what
 the rhythm and melody streams are keyed by:
 
-| Key | Default | Other value |
+| Key | Default | Other values |
 |---|---|---|
-| `rhythm_seed_by` | `"track"`: key `(1, m)`, one rhythm per track | `"track_cycle"`: key `(1, m, n)`, a new rhythm for every track and cycle |
-| `melody_seed_by` | `"cycle"`: key `(2, n)`, shared by all tracks | `"track_cycle"`: key `(2, m, n)`, a new melody for every track and cycle |
+| `rhythm_seed_by` | `"track"`: key `(1, m)`, one rhythm per track | `"track_cycle"`: key `(1, m, n)`, a new rhythm for every track and cycle; `"cycle"`: key `(5, n)`, a new rhythm every cycle, shared by all tracks |
+| `melody_seed_by` | `"cycle"`: key `(2, n)`, shared by all tracks | `"track_cycle"`: key `(2, m, n)`, a new melody for every track and cycle; `"track"`: key `(6, m)`, the same melody random numbers in every cycle of a track |
 
 With both set to `"track_cycle"`, every (track, cycle) has its own rhythm and notes, so
 nothing repeats. The report then shows only each track's first-cycle rhythm, with the
 range of notes per cycle. First used in
 `config/learned/N45_generate_{bass,melody}_Aaeolian_varied.json`.
+
+**Swapped roles** (Ken, 2026-11-25): `rhythm_seed_by: "cycle"` with
+`melody_seed_by: "track"`. In cycle n every track plays the same rhythm, and the tracks
+differ only in pitch. Each track reuses one melody stream, but because the slots change
+every cycle, its melody still changes. These keys use their own tags (5 and 6), so the
+streams are unrelated to the default ones. `evolve` still needs the default seeds.
+First used for N59 "Piano (D)" (400 bars, 93.191 bpm), analysed as A aeolian / Am7 with
+`base_pitch` 69, into 2-bar (`period` 32) and 4-bar (`period` 64) tables:
+`config/learned/N59_generate_piano_Aaeolian_{2,4}bar_rhythm-by-{track_melody-by-cycle,cycle_melody-by-track}.json`,
+each 16 tracks × 400 bars, `form: "walk"`, `end_note: "sampled"`, no chord step or
+filter, seed 59.
 
 ---
 
