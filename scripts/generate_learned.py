@@ -174,7 +174,8 @@ def main_elaborate(args):
           f"{cfg['changes_per_cycle']} edit(s) per cycle, {order}; {cfg['tempo']} bpm, seed {cfg['seed']}")
     if cfg["final_note"]:
         fn = cfg["final_note"]
-        print(f"Final   frozen last note at bar {fn['bar']}, 16th {fn['step']}, held {fn['length']} grid steps")
+        what = "frozen" if cfg["final_note_pitch"] == "fixed" else "rhythm-frozen (pitch evolves)"
+        print(f"Final   {what} last note at bar {fn['bar']}, 16th {fn['step']}, held {fn['length']} grid steps")
     marks = [0, 0.25, 0.5, 0.75, 1]
     print("Notes per cycle along each track (at " + ", ".join(f"{m:.0%}" for m in marks)
           + " of the track), then the rhythm of its busiest cycle (x = start, - = held, . = rest):")
@@ -183,6 +184,16 @@ def main_elaborate(args):
         c = t["counts"]
         curve = " ".join(f"{c[round(m * (len(c) - 1))]:3d}" for m in marks)
         print(f"  {name:{width}s} {curve}   {bar_picture(t['busiest'], cycle_steps, steps_per_bar)}")
+    inits = {int(k[14:]): stats.pop(k) for k in [k for k in stats if k.startswith("initial_pitch_")]}
+    if inits:
+        print(f"Start   cycle 0 pitch drawn ({cfg['initial_pitch']}), tracks per pitch: "
+              + ", ".join(f"{m} {PC[m % 12]}{m // 12 - 2} {n}" for m, n in sorted(inits.items())))
+    finals = {int(k[12:]): stats.pop(k) for k in [k for k in stats if k.startswith("final_pitch_")]}
+    if finals:
+        tot = sum(finals.values())
+        print(f"Final   pitch of the final note over all cycles ({cfg['final_note_pitch']}): "
+              + ", ".join(f"{m} {PC[m % 12]}{m // 12 - 2} {n / tot:.0%}"
+                          for m, n in sorted(finals.items(), key=lambda x: -x[1])))
     edits = {k: stats.pop(k) for k in [k for k in stats if k.startswith("edit_")]}
     print("Edits   " + ", ".join(f"{k[5:]} {v}" for k, v in sorted(edits.items())))
     pitch = {k: stats.pop(k) for k in [k for k in stats if k.startswith("pitch_")]}

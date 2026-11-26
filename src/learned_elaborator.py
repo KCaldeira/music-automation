@@ -32,6 +32,7 @@ from elaborator import START, SUSTAIN, REST
 import learned_generator as lg
 
 ELABORATE_STREAM = 7    # SeedSequence spawn-key tag: (7, track)
+INITIAL_PITCH_STREAM = 8    # (8, track): the drawn pitch of cycle 0
 
 # Plus exactly one of num_bars (track length in bars, a multiple of the cycle length)
 # and num_cycles (the older key).
@@ -58,6 +59,15 @@ def load_config(path):
         "reverse_cycle_order": True,
         # {"bar", "step", "length"} (counted from 1): a fixed, frozen last note.
         "final_note": None,
+        # "fixed": the final note stays the tonic; "evolve": its rhythm stays frozen
+        # but its 16th can be picked like any other, and a pick always re-pitches it.
+        "final_note_pitch": "fixed",
+        # Pitch of cycle 0 (held note and final note), the last cycle heard when the
+        # order is reversed: "tonic", or "input" = drawn per track from the input's
+        # pitch frequencies (octave kept), so several tracks end on a chord;
+        # "final_position" = the scale degree drawn from the position table at the
+        # final note's 16th, its octave from the input's counts for that degree.
+        "initial_pitch": "tonic",
         # "input_states": at the picked division, draw a target state (note start,
         # held, silent) from the input's frequencies there and make the edit that
         # gets there (split / new note / re-pitch, join / extend, cut to rest).
@@ -102,6 +112,14 @@ def load_config(path):
             fail(f"{k} must be a non-negative number (got {cfg[k]!r})")
     if cfg["reverse_cycle_order"] not in (True, False, "both"):
         fail(f"reverse_cycle_order must be true, false or 'both' (got {cfg['reverse_cycle_order']!r})")
+    if cfg["final_note_pitch"] not in ("fixed", "evolve"):
+        fail(f"final_note_pitch must be 'fixed' or 'evolve' (got {cfg['final_note_pitch']!r})")
+    if cfg["final_note_pitch"] == "evolve" and cfg["final_note"] is None:
+        fail("final_note_pitch 'evolve' needs a final_note")
+    if cfg["initial_pitch"] not in ("tonic", "input", "final_position"):
+        fail(f"initial_pitch must be 'tonic', 'input' or 'final_position' (got {cfg['initial_pitch']!r})")
+    if cfg["initial_pitch"] == "final_position" and cfg["final_note"] is None:
+        fail("initial_pitch 'final_position' needs a final_note")
     if cfg["edit_rules"] not in ("input_states", "old"):
         fail(f"edit_rules must be 'input_states' or 'old' (got {cfg['edit_rules']!r})")
     if cfg["change_weight"] not in ("uniform", "starts", "p_start"):
@@ -136,8 +154,9 @@ def resolve_num_cycles(cfg, tables, path):
 # Probabilities and pitch choice
 # --------------------------------------------------------------------------
 
-def division_probs(tables, cycle_steps, cfg, frozen):
-    """(change, start, rest) vectors over the cycle's divisions."""
+def division_probs(tables, cycle_steps, cfg, frozen, pitch_only=None):
+    """(change, start, rest) vectors over the cycle's divisions. pitch_only: a frozen
+    division that can still be picked (for a re-pitch), or None."""
     period = tables["period"]
     p = [tables["p_start"][d % period] for d in range(cycle_steps)]
     if cfg["change_weight"] == "starts":
@@ -148,7 +167,8 @@ def division_probs(tables, cycle_steps, cfg, frozen):
         base = [1.0] * cycle_steps
     else:
         base = p
-    change = [0.0 if frozen[d] else x ** cfg["change_exponent"] for d, x in enumerate(base)]
+    change = [0.0 if frozen[d] and d != pitch_only else x ** cfg["change_exponent"]
+              for d, x in enumerate(base)]
     rest = [(1.0 - x) ** cfg["rest_exponent"] for x in p]
     return change, p, rest
 
@@ -335,6 +355,16 @@ def new_note(grid, d, frozen, tables, cfg, rng, stats, ctx):
         stats["new_note_cut_short"] += 1
 
 
+def repitch(grid, d, tables, cfg, rng, stats, ctx):
+    """Give the note starting at d a different pitch. Returns True if it changed."""
+    new = choose_pitch(grid, d, tables, cfg, rng, stats, ctx, exclude=grid.pitch[d])
+    if new is None:
+        return False
+    for j in range(d, el.note_end(grid, d) + 1):
+        grid.pitch[j] = new
+    return True
+
+
 def apply_state_edit(grid, d, target_probs, frozen, tables, cfg, rng, stats, ctx):
     """Draw a target state for division d from the input's frequencies and make the
     edit that reaches it. Returns True if the grid changed."""
@@ -344,11 +374,8 @@ def apply_state_edit(grid, d, target_probs, frozen, tables, cfg, rng, stats, ctx
     k = grid.kind[d]
     if target == START:
         if k == START:                               # re-pitch
-            new = choose_pitch(grid, d, tables, cfg, rng, stats, ctx, exclude=grid.pitch[d])
-            if new is None:
+            if not repitch(grid, d, tables, cfg, rng, stats, ctx):
                 return False
-            for j in range(d, el.note_end(grid, d) + 1):
-                grid.pitch[j] = new
             stats["edit_repitch"] += 1
         elif k == SUSTAIN:                           # split: re-sound the same pitch
             grid.kind[d] = START
@@ -381,10 +408,27 @@ def apply_state_edit(grid, d, target_probs, frozen, tables, cfg, rng, stats, ctx
 # Whole run
 # --------------------------------------------------------------------------
 
-def initial_grid(cycle_steps, final):
-    """Cycle 0: the tonic (step 0) held over the cycle, or up to the final note,
-    which is then the tonic again; the divisions from the final note on are frozen."""
-    grid = el.init_cycle(cycle_steps, 0)
+def final_position_pitch(tables, fs, overall, rng):
+    """A scale step for cycle 0: the degree drawn from the position table at the final
+    note's 16th fs, then the octave from the input's counts of that degree."""
+    d_cls = len(tables["scale"])
+    row = {c: w for c, w in tables["position_pitch"][fs % tables["period"]].items() if w > 0}
+    if not row:
+        raise ValueError(f"{tables['source']}: no notes start at the final note's position "
+                         f"({fs % tables['period']}); use initial_pitch 'input' or 'tonic'")
+    degree = lg._sample(rng, row)
+    octaves = {p: w for p, w in overall.items() if p % d_cls == degree and w > 0}
+    if not octaves:
+        raise ValueError(f"{tables['source']}: degree {degree} is in the position table "
+                         f"but not in the transitions")
+    return lg._sample(rng, octaves)
+
+
+def initial_grid(cycle_steps, final, pitch=0):
+    """Cycle 0: one pitch (by default the tonic, step 0) held over the cycle, or up to
+    the final note, which has the same pitch; the divisions from the final note on
+    are frozen."""
+    grid = el.init_cycle(cycle_steps, pitch)
     frozen = [False] * cycle_steps
     if final is not None:
         fs, fl = final
@@ -422,8 +466,17 @@ def generate(cfg, tables):
     base_tracks = []
     for m in range(cfg["num_tracks"]):
         rng = np.random.default_rng(np.random.SeedSequence(cfg["seed"], spawn_key=(ELABORATE_STREAM, m)))
-        grid, frozen = initial_grid(cycle_steps, final)
-        probs = division_probs(tables, cycle_steps, cfg, frozen)
+        pitch0 = 0
+        if cfg["initial_pitch"] != "tonic":
+            prng = np.random.default_rng(np.random.SeedSequence(cfg["seed"], spawn_key=(INITIAL_PITCH_STREAM, m)))
+            if cfg["initial_pitch"] == "input":
+                pitch0 = lg._sample(prng, ctx["overall"])
+            else:
+                pitch0 = final_position_pitch(tables, final[0], ctx["overall"], prng)
+            stats[f"initial_pitch_{lg.step_to_midi(pitch0, tables)}"] += 1
+        grid, frozen = initial_grid(cycle_steps, final, pitch0)
+        pitch_only = final[0] if cfg["final_note_pitch"] == "evolve" else None
+        probs = division_probs(tables, cycle_steps, cfg, frozen, pitch_only)
         weights = np.asarray(probs[0], dtype=float)
         if weights.sum() == 0:
             raise ValueError("no division can be edited (p_start is 0 everywhere outside the final note)")
@@ -432,19 +485,29 @@ def generate(cfg, tables):
         cycles = [copy.deepcopy(grid)]
         for _ in range(cfg["num_cycles"] - 1):
             for _ in range(cfg["changes_per_cycle"]):
-                if targets is None:
-                    d = int(rng.choice(cycle_steps, p=weights))
-                    apply_edit(grid, d, probs, frozen, tables, cfg, rng, stats, ctx)
-                    continue
                 # Draw until something actually changes, so each cycle differs from
-                # the one before by changes_per_cycle real edits.
+                # the one before by changes_per_cycle real edits. (The old rules
+                # always count as a change, so they draw once.)
                 for _ in range(10000):
                     d = int(rng.choice(cycle_steps, p=weights))
-                    if apply_state_edit(grid, d, targets, frozen, tables, cfg, rng, stats, ctx):
+                    if d == pitch_only:      # the final note: re-pitch only
+                        changed = repitch(grid, d, tables, cfg, rng, stats, ctx)
+                        stats["edit_repitch_final"] += changed
+                    elif targets is None:
+                        apply_edit(grid, d, probs, frozen, tables, cfg, rng, stats, ctx)
+                        changed = True
+                    else:
+                        changed = apply_state_edit(grid, d, targets, frozen, tables, cfg, rng, stats, ctx)
+                    if changed:
                         break
                     stats["draws_without_change"] += 1
             cycles.append(copy.deepcopy(grid))
         base_tracks.append(cycles)
+    if final is not None:
+        # The final note's pitch over all cycles, as "final_pitch_<midi>" counts.
+        for cycles in base_tracks:
+            for g in cycles:
+                stats[f"final_pitch_{lg.step_to_midi(g.pitch[final[0]], tables)}"] += 1
 
     rco = cfg["reverse_cycle_order"]
     orders = [("", False), ("C", True)] if rco == "both" else [("", bool(rco))]

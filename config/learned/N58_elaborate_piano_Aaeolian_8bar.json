@@ -1,11 +1,11 @@
 {
-  "description": "N58 piano lines by elaboration (docs/learned_workflow.md section 6f), driven by the N58 'Piano (D)' 8-bar tables (A aeolian over Am7). Each track starts from one held A4 plus a frozen last note (A4) on beat 1 of bar 8, held 1 bar; each cycle adds one edit (split, join, new note, re-pitch, note to rest). Cycle order reversed: busy -> one held note. 16 tracks x 200 cycles = 1600 bars.",
+  "description": "N58 piano lines by elaboration (docs/learned_workflow.md section 6f), driven by the N58 'Piano (D)' 8-bar tables (A aeolian over Am7). Each track starts from one held pitch, drawn per track from the input's pitches at the final note's position, plus a last note of the same pitch on beat 1 of bar 8, held 4 beats, whose rhythm is frozen but whose pitch evolves; each cycle adds one edit (split, join, new note, re-pitch, note to rest). Cycle order reversed: busy -> one held note, so the tracks end on a chord. 16 tracks x 320 bars (40 cycles).",
 
   "method": "elaborate",
   "tables": "data/tables/N58_piano_Aaeolian_8bar.json",
   "output_dir": "/mnt/f/Cubase Projects/N58",
 
-  "num_cycles": 200,
+  "num_bars": 320,
   "num_tracks": 16,
   "seed": 58,
   "tempo": 96,
@@ -15,6 +15,8 @@
   "change_weight": "uniform",
   "reverse_cycle_order": true,
   "final_note": {"bar": 8, "step": 1, "length": 16},
+  "final_note_pitch": "evolve",
+  "initial_pitch": "final_position",
   "change_exponent": 1,
   "rest_exponent": 2,
   "new_note_length": "lengths",

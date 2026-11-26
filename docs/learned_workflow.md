@@ -670,6 +670,35 @@ multiple of the tables' `bars_per_cycle`, and `num_cycles` = `num_bars` / `bars_
 and 8-bar configs still give `num_cycles: 200`. In the 400-bar 1-bar run (seed 58) the
 first (busiest) cycles average 6.7 notes against the input's 5.2, as at 200 cycles.
 
+**Final note's pitch and the pitch of cycle 0** (Ken, 2026-11-26). Two options, both
+off by default, so earlier configs reproduce their runs note for note:
+
+- `final_note_pitch: "evolve"` (default `"fixed"`). The final note's rhythm stays
+  frozen, but its 16th can be picked for an edit like any other 16th (by
+  `change_weight`), and a pick always re-pitches it (`choose_pitch`, with the note before
+  it and the position table; it has no notes after it within the cycle). The report
+  counts these as `repitch_final`. With one edit per cycle and uniform weights, a trial
+  on the N58 configs re-pitched it about 39 times per track at 1 bar (400 cycles), 11 at
+  2 bars, 4.4 at 4 bars and 3.0 at 8 bars (200 cycles each).
+- `initial_pitch: "input"` (default `"tonic"`). Cycle 0's held note and final note
+  take one pitch drawn per track from the input's pitch frequencies (the counts summed
+  from `transitions[1]`, octave kept), from its own random stream,
+  `SeedSequence(seed, spawn_key=(8, m))`. With the cycle order reversed, cycle 0 is the
+  last one heard, so a set of tracks ends on a chord rather than a unison.
+- `initial_pitch: "final_position"` (Ken, 2026-11-26). As `"input"`, but the scale
+  degree is drawn from the position table at the final note's 16th, i.e. from the input
+  notes that start where the final note does (N58: 73, 47, 48 and 28 notes for 1, 2, 4
+  and 8 bars; A 22/43/42/39%, C 27/21/21/14%, E 26/11/17/29%, G 11/15/15/18%, D 14/11/6/0%).
+  The position table has no octave, so the octave is then drawn from the input's counts
+  of that degree (the `"input"` counts restricted to it). Needs `final_note`.
+
+The 1-bar N58 config uses `evolve` and `final_position`. Its run (seed 58) ends on A2,
+A3 ×2, A4, C3, C4 ×2, C5, D3, D4, D5 ×2, E3, E4 ×3 (MIDI 57–86, Cubase names): four
+each of A, C, D and E, no G. A first try with `initial_pitch: "input"` ended on B2, C3
+×3, E3, G3 ×2, C4 ×5, D4, E4 ×2, G4, with no A (a 2% chance with 16 draws from the
+input's 21% A). With either drawn start, notes by pitch class come close to the
+input's (C 27%, E 26%, A 21%, D 15%, G 9%); with the tonic start, A had been 39%.
+
 ---
 
 ## 7. Random seeds
