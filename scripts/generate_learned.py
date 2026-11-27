@@ -168,7 +168,8 @@ def main_elaborate(args):
     # Report
     bars = cycle_steps // steps_per_bar
     order = {True: "busy -> one held note", False: "one held note -> busy",
-             "both": "both orders (C = busy -> one held note)"}[cfg["reverse_cycle_order"]]
+             "both": "both orders (C = busy -> one held note)",
+             "mirror": "mirrored: one held note -> busy -> one held note"}[cfg["reverse_cycle_order"]]
     print(f"Tables  {cfg['tables']}  ({key}, chord {tables['chord']}, base_pitch {tables['base_pitch']})")
     print(f"Method  elaborate: {bars}-bar cycles, {cfg['num_cycles']} cycles, "
           f"{cfg['changes_per_cycle']} edit(s) per cycle, {order}; {cfg['tempo']} bpm, seed {cfg['seed']}")

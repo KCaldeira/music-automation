@@ -55,7 +55,9 @@ def load_config(path):
     defaults = {
         "changes_per_cycle": 1,
         # true: busy -> one held note (the old default); false: the other way;
-        # "both": each track written twice, the reversed copy with a "C" suffix.
+        # "both": each track written twice, the reversed copy with a "C" suffix;
+        # "mirror": half the cycles, then the same cycles reversed (one held note ->
+        # busy -> one held note). num_cycles / num_bars is the whole track.
         "reverse_cycle_order": True,
         # {"bar", "step", "length"} (counted from 1): a fixed, frozen last note.
         "final_note": None,
@@ -110,8 +112,11 @@ def load_config(path):
               "position_exponent", "change_exponent", "rest_exponent"):
         if isinstance(cfg[k], bool) or not isinstance(cfg[k], (int, float)) or cfg[k] < 0:
             fail(f"{k} must be a non-negative number (got {cfg[k]!r})")
-    if cfg["reverse_cycle_order"] not in (True, False, "both"):
-        fail(f"reverse_cycle_order must be true, false or 'both' (got {cfg['reverse_cycle_order']!r})")
+    if cfg["reverse_cycle_order"] not in (True, False, "both", "mirror"):
+        fail(f"reverse_cycle_order must be true, false, 'both' or 'mirror' "
+             f"(got {cfg['reverse_cycle_order']!r})")
+    if cfg["reverse_cycle_order"] == "mirror" and cfg.get("num_cycles", 0) % 2:
+        fail(f"reverse_cycle_order 'mirror' needs an even num_cycles (got {cfg['num_cycles']})")
     if cfg["final_note_pitch"] not in ("fixed", "evolve"):
         fail(f"final_note_pitch must be 'fixed' or 'evolve' (got {cfg['final_note_pitch']!r})")
     if cfg["final_note_pitch"] == "evolve" and cfg["final_note"] is None:
@@ -148,6 +153,10 @@ def resolve_num_cycles(cfg, tables, path):
         raise ValueError(f"Invalid elaboration config {path}: num_bars {cfg['num_bars']} is not "
                          f"a multiple of the cycle length ({bpc} bars, from {cfg['tables']})")
     cfg["num_cycles"] = cfg["num_bars"] // bpc
+    if cfg["reverse_cycle_order"] == "mirror" and cfg["num_cycles"] % 2:
+        raise ValueError(f"Invalid elaboration config {path}: with reverse_cycle_order 'mirror', "
+                         f"num_bars {cfg['num_bars']} must be a multiple of twice the cycle length "
+                         f"({2 * bpc} bars)")
 
 
 # --------------------------------------------------------------------------
@@ -463,6 +472,8 @@ def generate(cfg, tables):
     ctx = {"two_sided": two_sided_index(tables), "overall": dict(overall)}
     stats = Counter()
 
+    mirror = cfg["reverse_cycle_order"] == "mirror"
+    n_generated = cfg["num_cycles"] // 2 if mirror else cfg["num_cycles"]
     base_tracks = []
     for m in range(cfg["num_tracks"]):
         rng = np.random.default_rng(np.random.SeedSequence(cfg["seed"], spawn_key=(ELABORATE_STREAM, m)))
@@ -483,7 +494,7 @@ def generate(cfg, tables):
         weights /= weights.sum()
         targets = state_probs(tables, cycle_steps) if cfg["edit_rules"] == "input_states" else None
         cycles = [copy.deepcopy(grid)]
-        for _ in range(cfg["num_cycles"] - 1):
+        for _ in range(n_generated - 1):
             for _ in range(cfg["changes_per_cycle"]):
                 # Draw until something actually changes, so each cycle differs from
                 # the one before by changes_per_cycle real edits. (The old rules
@@ -510,11 +521,13 @@ def generate(cfg, tables):
                 stats[f"final_pitch_{lg.step_to_midi(g.pitch[final[0]], tables)}"] += 1
 
     rco = cfg["reverse_cycle_order"]
-    orders = [("", False), ("C", True)] if rco == "both" else [("", bool(rco))]
+    orders = ([("", False), ("C", True)] if rco == "both" else [("", "mirror")] if mirror
+              else [("", bool(rco))])
     tracks = []
     for suffix, rev in orders:
         for m, cycles in enumerate(base_tracks):
-            ordered = cycles[::-1] if rev else cycles
+            ordered = (cycles + cycles[::-1] if rev == "mirror" else cycles[::-1] if rev
+                       else cycles)
             out_index = len(tracks)
             notes, counts, busiest = [], [], []
             for n, g in enumerate(ordered):
