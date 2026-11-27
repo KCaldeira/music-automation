@@ -586,13 +586,15 @@ hand-set weights replaced by the tables. Ken found the old process sounded bette
 `evolve` (6e).
 
 **Process.** The cycle is a grid of 16ths, each a note start, held, or silent; pitches are
-scale steps. Cycle 0 is the tonic (step 0, A4 for N58) held over the whole cycle. With
+scale steps. Cycle 0 is the tonic (step 0, A4 for N58; or a drawn pitch, see
+`initial_pitch` below) held over the whole cycle. With
 `final_note` (as in section 5), it is held up to the final note, which is then the tonic
 again; the final note and everything after it are **frozen**. Each later cycle is the
 previous one plus `changes_per_cycle` edits, so the changes accumulate. By default
 (`reverse_cycle_order: true`) the cycle order is then reversed, so a track runs from busy
-to the single held note; `false` keeps the order, and `"both"` writes each track twice
-(the reversed copy gets a `C` suffix).
+to the single held note; `false` keeps the order, `"both"` writes each track twice
+(the reversed copy gets a `C` suffix), and `"mirror"` plays half the cycles forward and
+then the same cycles reversed (see "Mirrored tracks" below).
 
 **One edit** (`edit_rules: "input_states"`, the default). Pick a 16th d (uniformly over
 the unfrozen 16ths: `change_weight: "uniform"`). Draw a **target state** for d from the
@@ -669,6 +671,8 @@ multiple of the tables' `bars_per_cycle`, and `num_cycles` = `num_bars` / `bars_
 `num_bars: 400` (400 cycles, so the tracks match the length of N58's input); the 2-, 4-
 and 8-bar configs still give `num_cycles: 200`. In the 400-bar 1-bar run (seed 58) the
 first (busiest) cycles average 6.7 notes against the input's 5.2, as at 200 cycles.
+(Later the same day all four configs moved to `num_bars: 320`; see "N58 runs at 320 bars"
+below.)
 
 **Final note's pitch and the pitch of cycle 0** (Ken, 2026-11-26). Two options, both
 off by default, so earlier configs reproduce their runs note for note:
@@ -698,6 +702,43 @@ each of A, C, D and E, no G. A first try with `initial_pitch: "input"` ended on 
 ×3, E3, G3 ×2, C4 ×5, D4, E4 ×2, G4, with no A (a 2% chance with 16 draws from the
 input's 21% A). With either drawn start, notes by pitch class come close to the
 input's (C 27%, E 26%, A 21%, D 15%, G 9%); with the tonic start, A had been 39%.
+That paragraph describes the 400-bar run; since then all four N58 configs use both
+options (next).
+
+**N58 runs at 320 bars** (Ken, 2026-11-26). So that the four cycle lengths line up when
+combined, `config/learned/N58_elaborate_piano_Aaeolian_{1,2,4,8}bar.json` all give
+`num_bars: 320` (320, 160, 80 and 40 cycles), with `final_note_pitch: "evolve"` and
+`initial_pitch: "final_position"`. The four outputs are merged into one file
+(`scripts/merge_dawproject.py`, 64 tracks named `1bar t1` … `8bar t16`). The tracks
+end on these chords (16 tracks each): 1 bar A 4, C 4, D 4, E 4; 2 bars A 7, C 6, D 1,
+E 1, G 1; 4 bars A 7, C 5, D 1, E 2, G 1; 8 bars A 7, E 5, C 3, G 1.
+
+With one edit per cycle the 8-bar tracks, at only 40 cycles, never get busy, so Ken
+asked for **1, 1, 2 and 4 edits per cycle** for 1, 2, 4 and 8 bars (new configs
+`..._4bar_2edits.json` and `..._8bar_4edits.json`; the 1- and 2-bar configs are
+unchanged). Notes per cycle:
+
+| Cycle | Edits per cycle | Busiest (start of track) | Middle | Input | Busiest with 1 edit |
+|---|---|---|---|---|---|
+| 1 bar | 1 | 5.9 | 6.6 | 5.2 | 5.9 |
+| 2 bars | 1 | 11.9 | 11.7 | 10.4 | 11.9 |
+| 4 bars | 2 | 23.2 | 20.7 | 20.9 | 20.6 |
+| 8 bars | 4 | 39.6 | 32.0 | 41.7 | 22.2 |
+
+Ken liked this version. The ending chords do not change with the number of edits,
+because the pitch of cycle 0 has its own random stream.
+
+**Mirrored tracks: `reverse_cycle_order: "mirror"`** (Ken, 2026-11-26). Half the
+track's cycles are generated (one held note → busy) and played forward, then the same
+cycles are played in reverse, so a track goes sparse → full → sparse and starts and ends
+on its drawn pitch. The busiest cycle plays twice in a row at the middle. `num_bars`
+(or `num_cycles`) is still the whole track, so it must be a multiple of twice the cycle
+length (`num_cycles` even). Configs: `..._{1bar,2bar,4bar_2edits,8bar_4edits}_mirror.json`
+(320 bars, 1, 1, 2, 4 edits per cycle). Every track's second half was checked to mirror
+its first exactly. The peak equals the middle of the non-mirrored tracks above (6.6, 11.7,
+20.7 and 32.0 notes for 1, 2, 4 and 8 bars), because the first 160 bars of cycles are the
+same, so the 8-bar tracks peak at about three quarters of the input's density; 8 edits
+per cycle would raise that.
 
 ---
 
